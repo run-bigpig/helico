@@ -45,6 +45,8 @@ jobs:
             -p "helico-pty-replay-$ARCH-daemon.vcdiff" \
             -p "helico-pty-replay-$ARCH-tests.vcdiff" \
             -p terminal-pty-replay-sha256.txt \
+            -p "helico-appkit-$ARCH-desktop.vcdiff" -p "helico-appkit-$ARCH-tests.vcdiff" \
+            -p appkit-menu-sha256.txt \
             -p "helico-terminal-trace-test-$ARCH.vcdiff" -p terminal-trace-sha256.txt \
             -p "helico-terminal-observe-test-$ARCH.vcdiff" -p terminal-observe-test-sha256.txt \
             -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt \
@@ -116,6 +118,11 @@ jobs:
               awk -v name="$name" '$2 == name' terminal-pty-replay-sha256.txt | shasum -a 256 -c -
               install -m 755 "$name" "$payload/$binary"
             done
+            awk -v arch="$ARCH" '$2 ~ ("^helico-appkit-" arch "-.*[.]vcdiff$")' appkit-menu-sha256.txt | shasum -a 256 -c -
+            menu_desktop="helico-appkit-$ARCH-desktop"
+            xdelta3 -d -s "$payload/helico" "$menu_desktop.vcdiff" "$menu_desktop"
+            awk -v name="$menu_desktop" '$2 == name' appkit-menu-sha256.txt | shasum -a 256 -c -
+            install -m 755 "$menu_desktop" "$payload/helico"
             "./retry-packager-$ARCH" -arch "$ARCH" -payload "$payload" -out dmg-native -version 0.22.0-beta.2
             hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/native-mount" dmg-native/*.dmg
             ditto "$RUNNER_TEMP/native-mount/helico.app" "$RUNNER_TEMP/native-fixtures/helico.app"
@@ -136,6 +143,10 @@ jobs:
             xdelta3 -d -s helico-core-tests "$tests.vcdiff" "$tests"
             awk -v name="$tests" '$2 == name' terminal-pty-replay-sha256.txt | shasum -a 256 -c -
             mv "$tests" helico-core-tests
+            menu_tests="helico-appkit-$ARCH-tests"
+            xdelta3 -d -s helico-core-tests "$menu_tests.vcdiff" "$menu_tests"
+            awk -v name="$menu_tests" '$2 == name' appkit-menu-sha256.txt | shasum -a 256 -c -
+            mv "$menu_tests" helico-core-tests
             chmod 755 helico-core-tests
           ) 2>&1 | tee native-package.txt
 
@@ -149,11 +160,11 @@ jobs:
           cd "$RUNNER_TEMP"
           bundle="$RUNNER_TEMP/native-fixtures/helico.app/Contents"
           desktop="$bundle/MacOS/helico"
-          export HELICO_TEST_TERMINAL_HANDOFF_WAILS="$desktop"
+          export HELICO_TEST_MENU_WAILS="$desktop"
           export HELICO_TEST_PORT_WAILS="$desktop"
           export HELICO_TEST_BROWSER_HANDOFF_WAILS="$desktop"
           ./helico-core-tests -test.v -test.count=1 -test.timeout=9m \
-            -test.run '^TestWails(TerminalHandoff|TerminalFontSize|PortJump|BrowserHandoff)$' 2>&1 | tee native-wails.txt
+            -test.run '^TestWailsAppKitMenuLanguages$' 2>&1 | tee native-wails.txt
 
       - name: Retain native evidence
         if: always()
