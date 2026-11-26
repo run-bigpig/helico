@@ -1,0 +1,50 @@
+name: Helico native macOS browser host
+
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-macos-browser-host.yml]
+
+permissions:
+  contents: write # Test binaries are attached to the acceptance draft release.
+
+jobs:
+  browser-host:
+    name: Browser host protocol (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    steps:
+      - name: Verify fixture and run with native Chrome
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          fixture="helico-browser-protocol-$ARCH.test"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+            -p "$fixture.gz" -p native-browser-protocol-sha256.txt
+          awk -v file="$fixture.gz" '$2 == file' native-browser-protocol-sha256.txt | shasum -a 256 -c -
+          gzip -dc "$fixture.gz" > "$fixture"
+          chmod 755 "$fixture"
+          export HELICO_TEST_CHROMIUM='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+          test -x "$HELICO_TEST_CHROMIUM"
+          "$HELICO_TEST_CHROMIUM" --version | tee browser-host.txt
+          "./$fixture" -test.v -test.count=1 -test.timeout=9m \
+            -test.run '^Test(BrowserHostTabOwnershipAndEvents|BrowserHostProtocol|ChromiumPersistentOffscreenTab|ChromiumDevToolsKeepsTheInspectedTab|ChromiumPluginSession)$' \
+            2>&1 | tee -a browser-host.txt
+      - name: Retain evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-browser-host-${{ matrix.arch }}
+          path: ${{ runner.temp }}/browser-host.txt
+          retention-days: 14
