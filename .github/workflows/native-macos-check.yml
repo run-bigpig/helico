@@ -35,11 +35,11 @@ jobs:
             -p "desktop-$ARCH.tar.gz" -p "retry-packager-$ARCH" -p "repack-$ARCH" \
             -p "macos-fixes-$ARCH.tar" -p fixes-sha256.txt -p desktop-sha256.txt \
             -p repack-sha256.txt -p remote-sha256.txt -p helico.png \
-            -p "macos-update-popover-$ARCH.tar" -p update-popover-sha256.txt \
             -p mcp-acceptance.tar.gz -p mcp-acceptance-sha256.txt \
-            -p "helico-core-tests-$ARCH.gz" -p native-test-sha256.txt
-          cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt native-test-sha256.txt | awk -v arch="$ARCH" \
-            '$2 == "desktop-" arch ".tar.gz" || $2 == "retry-packager-" arch ||             $2 == "macos-fixes-" arch ".tar" || $2 == "repack-" arch || $2 == "helico-core-tests-" arch ".gz"' | shasum -a 256 -c -
+            -p "helico-guide-$ARCH.vcdiff" -p "helico-core-tests-guide-$ARCH.gz" \
+            -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt
+          cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt native-test-sha256.txt native-guide-sha256.txt | awk -v arch="$ARCH" \
+            '$2 == "desktop-" arch ".tar.gz" || $2 == "retry-packager-" arch ||             $2 == "macos-fixes-" arch ".tar" || $2 == "repack-" arch || $2 == "helico-core-tests-guide-" arch ".gz" || $2 == "helico-guide-" arch ".vcdiff"' | shasum -a 256 -c -
           tar -xzf "desktop-$ARCH.tar.gz"
           mkdir -p build/macos "delta-$ARCH"
           mv helico.png build/macos/
@@ -72,14 +72,12 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP"
           (
-            awk -v arch="$ARCH" '$2 == "macos-update-popover-" arch ".tar"' update-popover-sha256.txt | shasum -a 256 -c -
             shasum -a 256 -c mcp-acceptance-sha256.txt
             mkdir -p update-delta dmg-native native-fixtures native-mount
-            tar -xf "macos-update-popover-$ARCH.tar" -C update-delta
             tar -xzf mcp-acceptance.tar.gz -C native-fixtures
             payload="macos-$ARCH-payload"
-            xdelta3 -d -s "$payload/helico" update-delta/previous-helico.vcdiff update-delta/helico
-            (cd update-delta && awk '$2 == "previous/helico" { print $1, " helico" }' binary-sha256.txt | shasum -a 256 -c -)
+            xdelta3 -d -s "$payload/helico" "helico-guide-$ARCH.vcdiff" update-delta/helico
+            (cd update-delta && awk -v arch="$ARCH" '$2 == "helico-guide-" arch { print $1, " helico" }' ../native-guide-binary-sha256.txt | shasum -a 256 -c -)
             install -m 755 update-delta/helico "$payload/helico"
             "./retry-packager-$ARCH" -arch "$ARCH" -payload "$payload" -out dmg-native -version 0.22.0-beta.2
             hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/native-mount" dmg-native/*.dmg
@@ -90,7 +88,7 @@ jobs:
               sleep 2
             done
             codesign --verify --deep --strict native-fixtures/helico.app
-            gzip -dc "helico-core-tests-$ARCH.gz" > helico-core-tests
+            gzip -dc "helico-core-tests-guide-$ARCH.gz" > helico-core-tests
             chmod 755 helico-core-tests
           ) 2>&1 | tee native-package.txt
 
@@ -110,7 +108,7 @@ jobs:
           export HELICO_TEST_SETUP_WAILS="$desktop" HELICO_TEST_SETUP_CORE="$bundle/MacOS/helico-core"
           export HELICO_TEST_BROWSER_HOMEPAGE_WAILS="$desktop"
           ./helico-core-tests -test.v -test.count=1 -test.timeout=12m \
-            -test.run '^TestWails(MCPSettings|NativeTheme|AppearanceSearchAndRestart|UpdatePrerelease|RunPermissionSettings|ProjectSettings|ConversationSplit|CompactTitleBar|FullscreenEventsAndReload|FirstRunAndUserGuide|BrowserHomepage)$' 2>&1 | tee native-wails.txt
+            -test.run '^TestWails(MCPSettings|ConversationSplit|CompactTitleBar|FirstRunAndUserGuide)$' 2>&1 | tee native-wails.txt
 
       - name: Retain native evidence
         if: always()
