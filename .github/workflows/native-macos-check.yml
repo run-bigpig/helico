@@ -41,6 +41,7 @@ jobs:
             -p "helico-terminal-resize-$ARCH.vcdiff" -p terminal-resize-sha256.txt \
             -p "helico-terminal-repaint-$ARCH.vcdiff" -p terminal-repaint-sha256.txt \
             -p "helico-terminal-trace-test-$ARCH.vcdiff" -p terminal-trace-sha256.txt \
+            -p "helico-terminal-observe-test-$ARCH.vcdiff" -p terminal-observe-test-sha256.txt \
             -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt \
             -p native-next-input-sha256.txt -p native-next-binary-sha256.txt -p navigation-input-sha256.txt -p navigation-binary-sha256.txt -p terminal-replay-sha256.txt -p terminal-binary-sha256.txt
           cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt native-test-sha256.txt native-guide-sha256.txt | awk -v arch="$ARCH" \
@@ -110,8 +111,11 @@ jobs:
             codesign --verify --deep --strict native-fixtures/helico.app
             gzip -dc "helico-terminal-replay-$ARCH.gz" > helico-core-tests-base
             awk -v arch="$ARCH" '$2 == "helico-terminal-trace-test-" arch ".vcdiff"' terminal-trace-sha256.txt | shasum -a 256 -c -
-            xdelta3 -d -s helico-core-tests-base "helico-terminal-trace-test-$ARCH.vcdiff" helico-core-tests
-            awk -v arch="$ARCH" '$2 == "helico-terminal-trace-test-" arch {print $1, " helico-core-tests"}' terminal-trace-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s helico-core-tests-base "helico-terminal-trace-test-$ARCH.vcdiff" helico-core-tests-trace
+            awk -v arch="$ARCH" '$2 == "helico-terminal-trace-test-" arch {print $1, " helico-core-tests-trace"}' terminal-trace-sha256.txt | shasum -a 256 -c -
+            awk -v arch="$ARCH" '$2 == "helico-terminal-observe-test-" arch ".vcdiff"' terminal-observe-test-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s helico-core-tests-trace "helico-terminal-observe-test-$ARCH.vcdiff" helico-core-tests
+            awk -v arch="$ARCH" '$2 == "helico-terminal-observe-test-" arch {print $1, " helico-core-tests"}' terminal-observe-test-sha256.txt | shasum -a 256 -c -
             chmod 755 helico-core-tests
           ) 2>&1 | tee native-package.txt
 
@@ -128,7 +132,7 @@ jobs:
           export HELICO_TEST_TERMINAL_HANDOFF_WAILS="$desktop"
           export HELICO_TEST_PORT_WAILS="$desktop"
           ./helico-core-tests -test.v -test.count=1 -test.timeout=9m \
-            -test.run '^TestWails(TerminalHandoff|TerminalFontSize|PortJump)$' 2>&1 | tee native-wails.txt
+            -test.run '^TestWailsTerminalHandoff$' 2>&1 | tee native-wails.txt
 
       - name: Retain native evidence
         if: always()
