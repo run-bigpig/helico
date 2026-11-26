@@ -47,6 +47,7 @@ jobs:
             -p terminal-pty-replay-sha256.txt \
             -p "helico-appkit-$ARCH-desktop.vcdiff" -p "helico-appkit-$ARCH-tests.vcdiff" \
             -p appkit-menu-sha256.txt \
+            -p "helico-appkit-confirm-$ARCH-tests.vcdiff" -p appkit-menu-confirm-sha256.txt \
             -p "helico-terminal-trace-test-$ARCH.vcdiff" -p terminal-trace-sha256.txt \
             -p "helico-terminal-observe-test-$ARCH.vcdiff" -p terminal-observe-test-sha256.txt \
             -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt \
@@ -146,6 +147,11 @@ jobs:
             menu_tests="helico-appkit-$ARCH-tests"
             xdelta3 -d -s helico-core-tests "$menu_tests.vcdiff" "$menu_tests"
             awk -v name="$menu_tests" '$2 == name' appkit-menu-sha256.txt | shasum -a 256 -c -
+            mv "$menu_tests" helico-core-tests
+            menu_tests="helico-appkit-confirm-$ARCH-tests"
+            awk -v name="$menu_tests" '$2 == name ".vcdiff"' appkit-menu-confirm-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s helico-core-tests "$menu_tests.vcdiff" "$menu_tests"
+            awk -v name="$menu_tests" '$2 == name' appkit-menu-confirm-sha256.txt | shasum -a 256 -c -
             mv "$menu_tests" helico-core-tests
             chmod 755 helico-core-tests
           ) 2>&1 | tee native-package.txt
