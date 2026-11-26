@@ -32,14 +32,14 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP"
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
-            -p "desktop-$ARCH.tar.gz" -p "fixed-packager-$ARCH" -p "repack-$ARCH" \
+            -p "desktop-$ARCH.tar.gz" -p "retry-packager-$ARCH" -p "repack-$ARCH" \
             -p "macos-fixes-$ARCH.tar" -p fixes-sha256.txt -p desktop-sha256.txt \
             -p repack-sha256.txt -p remote-sha256.txt -p helico.png \
-            -p verify-dmg-macos.mjs -p node-mcp-fixture.cjs \
-            -p "macos-update-popover-$ARCH.tar" -p update-channels-sha256.txt -p verify-update-macos-channels.mjs \
-            -p mcp-acceptance.tar.gz -p mcp-acceptance-sha256.txt
-          cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt | awk -v arch="$ARCH" \
-            '$2 == "desktop-" arch ".tar.gz" || $2 == "fixed-packager-" arch ||             $2 == "macos-fixes-" arch ".tar" || $2 == "repack-" arch' | shasum -a 256 -c -
+            -p "macos-update-popover-$ARCH.tar" -p update-popover-sha256.txt \
+            -p mcp-acceptance.tar.gz -p mcp-acceptance-sha256.txt \
+            -p "helico-core-tests-$ARCH.gz" -p native-test-sha256.txt
+          cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt native-test-sha256.txt | awk -v arch="$ARCH" \
+            '$2 == "desktop-" arch ".tar.gz" || $2 == "retry-packager-" arch ||             $2 == "macos-fixes-" arch ".tar" || $2 == "repack-" arch || $2 == "helico-core-tests-" arch ".gz"' | shasum -a 256 -c -
           tar -xzf "desktop-$ARCH.tar.gz"
           mkdir -p build/macos "delta-$ARCH"
           mv helico.png build/macos/
@@ -54,7 +54,7 @@ jobs:
             mv "$file.patched" "$file"
           done
           (cd "macos-$ARCH-payload" && shasum -a 256 -c "$RUNNER_TEMP/delta-$ARCH/binary-sha256.txt")
-          chmod +x "fixed-packager-$ARCH" "repack-$ARCH"
+          chmod +x "retry-packager-$ARCH" "repack-$ARCH"
           DEB=helico-0.22.0-beta.2-linux-amd64.deb
           gh release download v0.22.0-beta.2 -R "$GITHUB_REPOSITORY" -p "$DEB" -p SHA256SUMS
           awk -v deb="$DEB" '$2 == deb' SHA256SUMS | shasum -a 256 -c -
@@ -64,7 +64,7 @@ jobs:
           done
           (cd "macos-$ARCH-payload/remote" && shasum -a 256 -c "$RUNNER_TEMP/remote-sha256.txt")
 
-      - name: Create a board task, update through Wails and roll back
+      - name: Build and install the native acceptance bundle
         env:
           ARCH: ${{ matrix.goarch }}
           RUNNER_TEMP: ${{ runner.temp }}
@@ -72,56 +72,45 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP"
           (
-            awk -v arch="$ARCH" '$2 == "macos-update-popover-" arch ".tar" || $2 == "verify-update-macos-channels.mjs"' update-channels-sha256.txt | shasum -a 256 -c -
-            payload="macos-$ARCH-payload"
-            mkdir -p update-delta update-programs/previous update-programs/next dmg-update
+            awk -v arch="$ARCH" '$2 == "macos-update-popover-" arch ".tar"' update-popover-sha256.txt | shasum -a 256 -c -
+            shasum -a 256 -c mcp-acceptance-sha256.txt
+            mkdir -p update-delta dmg-native native-fixtures native-mount
             tar -xf "macos-update-popover-$ARCH.tar" -C update-delta
-            for item in previous/helico next/helico next/helico-core; do
-              patch=$(printf '%s' "$item" | tr '/' '-').vcdiff
-              xdelta3 -d -s "$payload/${item##*/}" "update-delta/$patch" "update-programs/$item"
+            tar -xzf mcp-acceptance.tar.gz -C native-fixtures
+            payload="macos-$ARCH-payload"
+            xdelta3 -d -s "$payload/helico" update-delta/previous-helico.vcdiff update-delta/helico
+            (cd update-delta && awk '$2 == "previous/helico" { print $1, " helico" }' binary-sha256.txt | shasum -a 256 -c -)
+            install -m 755 update-delta/helico "$payload/helico"
+            "./retry-packager-$ARCH" -arch "$ARCH" -payload "$payload" -out dmg-native -version 0.22.0-beta.2
+            hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/native-mount" dmg-native/*.dmg
+            ditto "$RUNNER_TEMP/native-mount/helico.app" "$RUNNER_TEMP/native-fixtures/helico.app"
+            for attempt in 1 2 3; do
+              if hdiutil detach "$RUNNER_TEMP/native-mount"; then break; fi
+              if [ "$attempt" -eq 3 ]; then hdiutil detach -force "$RUNNER_TEMP/native-mount"; fi
+              sleep 2
             done
-            (cd update-programs && shasum -a 256 -c ../update-delta/binary-sha256.txt)
-            build_dmg() {
-              for attempt in 1 2 3; do
-                if "./fixed-packager-$ARCH" -arch "$ARCH" -payload "$payload" -out dmg-update -version "$1" >package.log 2>&1; then
-                  cat package.log
-                  return 0
-                fi
-                cat package.log
-                grep -q 'hdiutil: create failed - Resource busy' package.log || return 1
-                sleep 8
-              done
-              return 1
-            }
-            install -m 755 update-programs/previous/helico "$payload/helico"
-            build_dmg 0.22.0-beta.2
-            install -m 755 update-programs/next/helico "$payload/helico"
-            install -m 755 update-programs/next/helico-core "$payload/helico-core"
-            build_dmg 0.22.0
-            node verify-update-macos-channels.mjs dmg-update/*beta.2*.dmg dmg-update/helico-0.22.0-macos-*.dmg
-          ) 2>&1 | tee native-update.txt
+            codesign --verify --deep --strict native-fixtures/helico.app
+            gzip -dc "helico-core-tests-$ARCH.gz" > helico-core-tests
+            chmod 755 helico-core-tests
+          ) 2>&1 | tee native-package.txt
 
-      - name: Verify Go and Node MCP in the installed bundle
-        if: always()
+      - name: Run installed settings and desktop tests
         env:
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          (
-            shasum -a 256 -c mcp-acceptance-sha256.txt
-            mkdir -p mcp-smoke mcp-mount
-            tar -xzf mcp-acceptance.tar.gz -C mcp-smoke
-            hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/mcp-mount" dmg-update/*beta.2*.dmg
-            ditto "$RUNNER_TEMP/mcp-mount/helico.app" "$RUNNER_TEMP/mcp-smoke/helico.app"
-            for attempt in 1 2 3; do
-              if hdiutil detach "$RUNNER_TEMP/mcp-mount"; then break; fi
-              if [ "$attempt" -eq 3 ]; then hdiutil detach -force "$RUNNER_TEMP/mcp-mount"; fi
-              sleep 2
-            done
-            bundle="$RUNNER_TEMP/mcp-smoke/helico.app/Contents"
-            node mcp-smoke/verify.mjs "$bundle/MacOS" "$bundle/Resources"
-          ) 2>&1 | tee native-mcp.txt
+          bundle="$RUNNER_TEMP/native-fixtures/helico.app/Contents"
+          desktop="$bundle/MacOS/helico"
+          export HELICO_TEST_MCP_WAILS="$desktop" HELICO_TEST_MCP_INSTALL="$bundle/MacOS"
+          export HELICO_TEST_MCP_FIXTURE="$RUNNER_TEMP/native-fixtures/fixture"
+          export HELICO_TEST_THEME_WAILS="$desktop" HELICO_TEST_UPDATE_WAILS="$desktop"
+          export HELICO_TEST_PERMISSIONS_WAILS="$desktop" HELICO_TEST_PROJECTS_WAILS="$desktop"
+          export HELICO_TEST_SPLIT_WAILS="$desktop" HELICO_TEST_FULLSCREEN_WAILS="$desktop"
+          export HELICO_TEST_SETUP_WAILS="$desktop" HELICO_TEST_SETUP_CORE="$bundle/MacOS/helico-core"
+          export HELICO_TEST_BROWSER_HOMEPAGE_WAILS="$desktop"
+          ./helico-core-tests -test.v -test.count=1 -test.timeout=12m \
+            -test.run '^TestWails(MCPSettings|NativeTheme|AppearanceSearchAndRestart|UpdatePrerelease|RunPermissionSettings|ProjectSettings|ConversationSplit|CompactTitleBar|FullscreenEventsAndReload|FirstRunAndUserGuide|BrowserHomepage)$' 2>&1 | tee native-wails.txt
 
       - name: Retain native evidence
         if: always()
@@ -129,7 +118,7 @@ jobs:
         with:
           name: native-dmg-${{ matrix.goarch }}
           path: |
-            ${{ runner.temp }}/native-update.txt
-            ${{ runner.temp }}/native-mcp.txt
+            ${{ runner.temp }}/native-package.txt
+            ${{ runner.temp }}/native-wails.txt
           if-no-files-found: ignore
           retention-days: 14
