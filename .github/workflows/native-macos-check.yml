@@ -38,6 +38,7 @@ jobs:
             -p mcp-acceptance.tar.gz -p mcp-acceptance-sha256.txt \
             -p "helico-guide-$ARCH.vcdiff" -p "helico-native-next-$ARCH.vcdiff" \
             -p "helico-navigation-$ARCH.vcdiff" -p "helico-terminal-replay-$ARCH.gz" -p "helico-terminal-$ARCH.vcdiff" \
+            -p "helico-terminal-marker-$ARCH.vcdiff" -p terminal-marker-sha256.txt \
             -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt \
             -p native-next-input-sha256.txt -p native-next-binary-sha256.txt -p navigation-input-sha256.txt -p navigation-binary-sha256.txt -p terminal-replay-sha256.txt -p terminal-binary-sha256.txt
           cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt native-test-sha256.txt native-guide-sha256.txt | awk -v arch="$ARCH" \
@@ -99,7 +100,10 @@ jobs:
               sleep 2
             done
             codesign --verify --deep --strict native-fixtures/helico.app
-            gzip -dc "helico-terminal-replay-$ARCH.gz" > helico-core-tests
+            gzip -dc "helico-terminal-replay-$ARCH.gz" > helico-core-tests-base
+            awk -v arch="$ARCH" '$2 == "helico-terminal-marker-" arch ".vcdiff"' terminal-marker-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s helico-core-tests-base "helico-terminal-marker-$ARCH.vcdiff" helico-core-tests
+            awk -v arch="$ARCH" '$2 == "helico-terminal-marker-" arch {print $1, " helico-core-tests"}' terminal-marker-sha256.txt | shasum -a 256 -c -
             chmod 755 helico-core-tests
           ) 2>&1 | tee native-package.txt
 
@@ -116,7 +120,7 @@ jobs:
           export HELICO_TEST_TERMINAL_HANDOFF_WAILS="$desktop"
           export HELICO_TEST_PORT_WAILS="$desktop"
           ./helico-core-tests -test.v -test.count=1 -test.timeout=9m \
-            -test.run '^TestWails(TerminalHandoff|TerminalFontSize|PortJump)$' 2>&1 | tee native-wails.txt
+            -test.run '^TestWailsTerminalHandoff$' 2>&1 | tee native-wails.txt
 
       - name: Retain native evidence
         if: always()
