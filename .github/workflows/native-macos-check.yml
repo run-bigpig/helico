@@ -1,0 +1,74 @@
+name: Helico native macOS acceptance
+
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-macos-check.yml]
+
+permissions:
+  contents: write # Draft release inputs require push access.
+
+jobs:
+  dmg:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            goarch: amd64
+            nodearch: x64
+          - runner: macos-15
+            goarch: arm64
+            nodearch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - name: Fetch acceptance inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.goarch }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          for attempt in {1..12}; do
+            if gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+            -p "payload-$ARCH.tar.gz" -p "packager-$ARCH" -p input-sha256.txt \
+              -p helico.png -p verify-dmg-macos.mjs --clobber; then
+              break
+            fi
+            test "$attempt" -lt 12
+            sleep 15
+          done
+          awk -v arch="$ARCH" '$2 == "payload-" arch ".tar.gz" || $2 == "packager-" arch' input-sha256.txt | shasum -a 256 -c -
+          tar -xzf "payload-$ARCH.tar.gz"
+          mkdir -p build/macos
+          mv helico.png build/macos/
+          chmod +x "packager-$ARCH"
+
+      - name: Build, mount, install and launch DMG
+        env:
+          ARCH: ${{ matrix.goarch }}
+          NODE_ARCH: ${{ matrix.nodearch }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          (
+            sw_vers
+            uname -m
+            node --version
+            "./packager-$ARCH" -arch "$ARCH" -payload "macos-$ARCH-payload" -out dmg
+            DMG=$(find dmg -name '*.dmg' -print)
+            shasum -a 256 "$DMG"
+            node verify-dmg-macos.mjs "$DMG" "$NODE_ARCH" 0.22.0-beta.2
+          ) 2>&1 | tee native-acceptance.txt
+
+      - name: Retain native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-dmg-${{ matrix.goarch }}
+          path: ${{ runner.temp }}/native-acceptance.txt
+          if-no-files-found: ignore
+          retention-days: 14
