@@ -39,7 +39,8 @@ jobs:
             -p "helico-guide-$ARCH.vcdiff" -p "helico-native-next-$ARCH.vcdiff" \
             -p "helico-navigation-$ARCH.vcdiff" -p "helico-terminal-replay-$ARCH.gz" -p "helico-terminal-$ARCH.vcdiff" \
             -p "helico-terminal-resize-$ARCH.vcdiff" -p terminal-resize-sha256.txt \
-            -p "helico-terminal-trace-$ARCH.vcdiff" -p "helico-terminal-trace-test-$ARCH.vcdiff" -p terminal-trace-sha256.txt \
+            -p "helico-terminal-repaint-$ARCH.vcdiff" -p terminal-repaint-sha256.txt \
+            -p "helico-terminal-trace-test-$ARCH.vcdiff" -p terminal-trace-sha256.txt \
             -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt \
             -p native-next-input-sha256.txt -p native-next-binary-sha256.txt -p navigation-input-sha256.txt -p navigation-binary-sha256.txt -p terminal-replay-sha256.txt -p terminal-binary-sha256.txt
           cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt native-test-sha256.txt native-guide-sha256.txt | awk -v arch="$ARCH" \
@@ -94,10 +95,10 @@ jobs:
             awk -v arch="$ARCH" '$2 == "helico-terminal-resize-" arch ".vcdiff"' terminal-resize-sha256.txt | shasum -a 256 -c -
             xdelta3 -d -s "helico-terminal-$ARCH" "helico-terminal-resize-$ARCH.vcdiff" "helico-terminal-resize-$ARCH"
             awk -v arch="$ARCH" '$2 == "helico-terminal-resize-" arch' terminal-resize-sha256.txt | shasum -a 256 -c -
-            awk -v arch="$ARCH" '$2 == "helico-terminal-trace-" arch ".vcdiff"' terminal-trace-sha256.txt | shasum -a 256 -c -
-            xdelta3 -d -s "helico-terminal-resize-$ARCH" "helico-terminal-trace-$ARCH.vcdiff" "helico-terminal-trace-$ARCH"
-            awk -v arch="$ARCH" '$2 == "helico-terminal-trace-" arch' terminal-trace-sha256.txt | shasum -a 256 -c -
-            install -m 755 "helico-terminal-trace-$ARCH" "$payload/helico"
+            awk -v arch="$ARCH" '$2 == "helico-terminal-repaint-" arch ".vcdiff"' terminal-repaint-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s "helico-terminal-resize-$ARCH" "helico-terminal-repaint-$ARCH.vcdiff" "helico-terminal-repaint-$ARCH"
+            awk -v arch="$ARCH" '$2 == "helico-terminal-repaint-" arch' terminal-repaint-sha256.txt | shasum -a 256 -c -
+            install -m 755 "helico-terminal-repaint-$ARCH" "$payload/helico"
             "./retry-packager-$ARCH" -arch "$ARCH" -payload "$payload" -out dmg-native -version 0.22.0-beta.2
             hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/native-mount" dmg-native/*.dmg
             ditto "$RUNNER_TEMP/native-mount/helico.app" "$RUNNER_TEMP/native-fixtures/helico.app"
@@ -127,7 +128,7 @@ jobs:
           export HELICO_TEST_TERMINAL_HANDOFF_WAILS="$desktop"
           export HELICO_TEST_PORT_WAILS="$desktop"
           ./helico-core-tests -test.v -test.count=1 -test.timeout=9m \
-            -test.run '^TestWailsTerminalHandoff$' 2>&1 | tee native-wails.txt
+            -test.run '^TestWails(TerminalHandoff|TerminalFontSize|PortJump)$' 2>&1 | tee native-wails.txt
 
       - name: Retain native evidence
         if: always()
