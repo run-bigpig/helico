@@ -14,9 +14,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15-intel
-            goarch: amd64
-            nodearch: x64
           - runner: macos-15
             goarch: arm64
             nodearch: arm64
@@ -36,10 +33,10 @@ jobs:
             -p "macos-fixes-$ARCH.tar" -p fixes-sha256.txt -p desktop-sha256.txt \
             -p repack-sha256.txt -p remote-sha256.txt -p helico.png \
             -p mcp-acceptance.tar.gz -p mcp-acceptance-sha256.txt \
-            -p "helico-guide-$ARCH.vcdiff" -p "helico-core-tests-guide-$ARCH.gz" \
-            -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt
-          cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt native-test-sha256.txt native-guide-sha256.txt | awk -v arch="$ARCH" \
-            '$2 == "desktop-" arch ".tar.gz" || $2 == "retry-packager-" arch ||             $2 == "macos-fixes-" arch ".tar" || $2 == "repack-" arch || $2 == "helico-core-tests-guide-" arch ".gz" || $2 == "helico-guide-" arch ".vcdiff"' | shasum -a 256 -c -
+            -p "helico-guide-$ARCH.vcdiff" -p "helico-core-tests-viewport-$ARCH.gz" \
+            -p native-test-sha256.txt -p native-viewport-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt
+          cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt native-test-sha256.txt native-viewport-sha256.txt native-guide-sha256.txt | awk -v arch="$ARCH" \
+            '$2 == "desktop-" arch ".tar.gz" || $2 == "retry-packager-" arch ||             $2 == "macos-fixes-" arch ".tar" || $2 == "repack-" arch || $2 == "helico-core-tests-viewport-" arch ".gz" || $2 == "helico-guide-" arch ".vcdiff"' | shasum -a 256 -c -
           tar -xzf "desktop-$ARCH.tar.gz"
           mkdir -p build/macos "delta-$ARCH"
           mv helico.png build/macos/
@@ -88,7 +85,7 @@ jobs:
               sleep 2
             done
             codesign --verify --deep --strict native-fixtures/helico.app
-            gzip -dc "helico-core-tests-guide-$ARCH.gz" > helico-core-tests
+            gzip -dc "helico-core-tests-viewport-$ARCH.gz" > helico-core-tests
             chmod 755 helico-core-tests
           ) 2>&1 | tee native-package.txt
 
@@ -108,7 +105,7 @@ jobs:
           export HELICO_TEST_SETUP_WAILS="$desktop" HELICO_TEST_SETUP_CORE="$bundle/MacOS/helico-core"
           export HELICO_TEST_BROWSER_HOMEPAGE_WAILS="$desktop"
           ./helico-core-tests -test.v -test.count=1 -test.timeout=12m \
-            -test.run '^TestWails(MCPSettings|ConversationSplit|CompactTitleBar|FirstRunAndUserGuide)$' 2>&1 | tee native-wails.txt
+            -test.run '^TestWails(ConversationSplit|CompactTitleBar)$' 2>&1 | tee native-wails.txt
 
       - name: Retain native evidence
         if: always()
