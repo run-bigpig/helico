@@ -36,10 +36,12 @@ jobs:
             -p "helico-guide-$ARCH.vcdiff" -p "helico-titlebar-probe-$ARCH.vcdiff" \
             -p "helico-core-tests-titlebar-panel-$ARCH.gz" \
             -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt \
-            -p native-titlebar-probe-sha256.txt -p native-titlebar-probe-binary-sha256.txt
+            -p native-titlebar-probe-sha256.txt -p native-titlebar-probe-binary-sha256.txt \
+            -p "helico-fullscreen-frame-$ARCH.vcdiff" -p native-fullscreen-frame-sha256.txt -p native-fullscreen-frame-binary-sha256.txt
           cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt native-test-sha256.txt native-guide-sha256.txt | awk -v arch="$ARCH" \
             '$2 == "desktop-" arch ".tar.gz" || $2 == "retry-packager-" arch || $2 == "macos-fixes-" arch ".tar" || $2 == "repack-" arch || $2 == "helico-guide-" arch ".vcdiff"' | shasum -a 256 -c -
           shasum -a 256 -c native-titlebar-probe-sha256.txt
+          shasum -a 256 -c native-fullscreen-frame-sha256.txt
           tar -xzf "desktop-$ARCH.tar.gz"
           mkdir -p build/macos "delta-$ARCH"
           mv helico.png build/macos/
@@ -80,7 +82,9 @@ jobs:
             (cd update-delta && awk -v arch="$ARCH" '$2 == "helico-guide-" arch { print $1, " helico" }' ../native-guide-binary-sha256.txt | shasum -a 256 -c -)
             xdelta3 -d -s update-delta/helico "helico-titlebar-probe-$ARCH.vcdiff" "helico-titlebar-probe-$ARCH"
             shasum -a 256 -c native-titlebar-probe-binary-sha256.txt
-            install -m 755 "helico-titlebar-probe-$ARCH" "$payload/helico"
+            xdelta3 -d -s "helico-titlebar-probe-$ARCH" "helico-fullscreen-frame-$ARCH.vcdiff" "helico-fullscreen-frame-$ARCH"
+            shasum -a 256 -c native-fullscreen-frame-binary-sha256.txt
+            install -m 755 "helico-fullscreen-frame-$ARCH" "$payload/helico"
             "./retry-packager-$ARCH" -arch "$ARCH" -payload "$payload" -out dmg-native -version 0.22.0-beta.2
             hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/native-mount" dmg-native/*.dmg
             ditto "$RUNNER_TEMP/native-mount/helico.app" "$RUNNER_TEMP/native-fixtures/helico.app"
