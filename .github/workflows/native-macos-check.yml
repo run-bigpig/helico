@@ -166,11 +166,12 @@ jobs:
           cd "$RUNNER_TEMP"
           bundle="$RUNNER_TEMP/native-fixtures/helico.app/Contents"
           desktop="$bundle/MacOS/helico"
-          export HELICO_TEST_MENU_WAILS="$desktop"
-          export HELICO_TEST_PORT_WAILS="$desktop"
-          export HELICO_TEST_BROWSER_HANDOFF_WAILS="$desktop"
+          export HELICO_TEST_PROJECTS_WAILS="$desktop"
+          export HELICO_TEST_PERMISSIONS_WAILS="$desktop"
+          export HELICO_TEST_THEME_WAILS="$desktop"
+          export HELICO_TEST_UPDATE_WAILS="$desktop"
           ./helico-core-tests -test.v -test.count=1 -test.timeout=9m \
-            -test.run '^TestWailsAppKitMenuLanguages$' 2>&1 | tee native-wails.txt
+            -test.run '^TestWails(ProjectSettings|RunPermissionSettings|NativeTheme|AppearanceSearchAndRestart|UpdatePrerelease)$' 2>&1 | tee native-wails.txt
 
       - name: Retain native evidence
         if: always()
