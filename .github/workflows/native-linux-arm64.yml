@@ -1,0 +1,43 @@
+name: Helico native Linux ARM64 acceptance
+
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-linux-arm64.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  remote:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 12
+    steps:
+      - name: Verify task recovery and MCP from the packaged ARM64 backend
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          (
+            gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+              -p helico-native-linux-arm64.tar.gz -p verify-linux-arm64.mjs -p native-linux-arm64-sha256.txt \
+              -p mcp-acceptance.tar.gz -p mcp-acceptance-sha256.txt
+            sha256sum -c native-linux-arm64-sha256.txt
+            sha256sum -c mcp-acceptance-sha256.txt
+            mkdir backend mcp-test
+            tar -xzf helico-native-linux-arm64.tar.gz -C backend
+            tar -xzf mcp-acceptance.tar.gz -C mcp-test
+            file backend/helico-core backend/mcp-runtime/node-v24.19.0/bin/node
+            node verify-linux-arm64.mjs --native "$RUNNER_TEMP/backend/helico-core"
+            node mcp-test/verify.mjs "$RUNNER_TEMP/backend"
+          ) 2>&1 | tee native-linux-arm64.txt
+
+      - name: Retain native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-linux-arm64
+          path: ${{ runner.temp }}/native-linux-arm64.txt
+          retention-days: 14
