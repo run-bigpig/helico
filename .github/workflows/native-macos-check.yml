@@ -49,6 +49,7 @@ jobs:
             -p appkit-menu-sha256.txt \
             -p "helico-appkit-confirm-$ARCH-tests.vcdiff" -p appkit-menu-confirm-sha256.txt \
             -p "helico-browser-data-$ARCH-tests.vcdiff" -p browser-data-sha256.txt \
+            -p "helico-browser-exit-darwin-$ARCH-tests.vcdiff" -p browser-exit-sha256.txt \
             -p "helico-terminal-trace-test-$ARCH.vcdiff" -p terminal-trace-sha256.txt \
             -p "helico-terminal-observe-test-$ARCH.vcdiff" -p terminal-observe-test-sha256.txt \
             -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt \
@@ -159,6 +160,11 @@ jobs:
             xdelta3 -d -s helico-core-tests "$browser_tests.vcdiff" "$browser_tests"
             awk -v name="$browser_tests" '$2 == name' browser-data-sha256.txt | shasum -a 256 -c -
             mv "$browser_tests" helico-core-tests
+            exit_tests="helico-browser-exit-darwin-$ARCH-tests"
+            awk -v name="$exit_tests" '$2 == name ".vcdiff"' browser-exit-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s helico-core-tests "$exit_tests.vcdiff" "$exit_tests"
+            awk -v name="$exit_tests" '$2 == name' browser-exit-sha256.txt | shasum -a 256 -c -
+            mv "$exit_tests" helico-core-tests
             chmod 755 helico-core-tests
           ) 2>&1 | tee native-package.txt
 
@@ -177,7 +183,7 @@ jobs:
           "$HELICO_TEST_CHROMIUM" --version | tee native-wails.txt
           export HELICO_TEST_BOOKMARKS_WAILS="$desktop"
           ./helico-core-tests -test.v -test.count=1 -test.timeout=9m \
-            -test.run '^Test(WailsChromiumBookmarkProfiles|BrowserRPCTabControlAndConversationRemoval)$' 2>&1 | tee -a native-wails.txt
+            -test.run '^Test(WailsChromiumBookmarkProfiles|BrowserHistoryRecordsLoadedTitles)$' 2>&1 | tee -a native-wails.txt
 
       - name: Retain native evidence
         if: always()
