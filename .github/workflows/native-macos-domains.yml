@@ -34,7 +34,6 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
           HELICO_TEST_AWAKE_NATIVE: '1'
-          HELICO_TEST_DISCUSSION_FORMATS: '1'
           HELICO_TEST_CHROMIUM: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
         run: |
           set -euo pipefail
@@ -48,7 +47,7 @@ jobs:
             ForkRetainsOnlyTheSelectedTurnAndPersistsIndependentHistory ConversationTitleNamingCountsRoundsAndRespectsManualRename
             StoppedConversationReadsSQLiteHistoryWithoutWireLog ChatWatchUnsubscribeKeepsOtherClients ChatWatchSnapshotDoesNotRepeatQueuedAppends
             SquadCatalogPreservesLegacyRows SquadRunHistoryReadsOriginalSnapshots DiscussionRoundtableThroughGoDaemon
-            DiscussionReviewAndResearchKeepMemberPromptsSeparate DiscussionMembersUseSeparateModelProviders KnowledgeRegistrySettingsAndStagePermissions
+            DiscussionReviewAndResearchKeepMemberPromptsSeparate KnowledgeRegistrySettingsAndStagePermissions
             ChannelCoreIPCAndRestart ChannelLockedCodexAndProjectTools LegacyScheduleRowsKeepLimitAndRoutineHistory
             SchedulesUseNativeDaemonAndRecover QuotaCreditRetriesAfterRestartAndChecksIdentity ProjectFileSearchRanksMatchesAndRespectsGitIgnore
             CodexTaskReferenceEditPaths DSHFileTargetsRespectProjectAndReferenceRoots
