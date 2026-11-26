@@ -37,14 +37,14 @@ jobs:
             -p repack-sha256.txt -p remote-sha256.txt -p helico.png \
             -p mcp-acceptance.tar.gz -p mcp-acceptance-sha256.txt \
             -p "helico-guide-$ARCH.vcdiff" -p "helico-native-next-$ARCH.vcdiff" \
-            -p "helico-navigation-$ARCH.vcdiff" -p "helico-terminal-tests-$ARCH.gz" -p "helico-terminal-$ARCH.vcdiff" \
+            -p "helico-navigation-$ARCH.vcdiff" -p "helico-terminal-retest-$ARCH.gz" -p "helico-terminal-$ARCH.vcdiff" \
             -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt \
-            -p native-next-input-sha256.txt -p native-next-binary-sha256.txt -p navigation-input-sha256.txt -p navigation-binary-sha256.txt -p terminal-input-sha256.txt -p terminal-binary-sha256.txt
+            -p native-next-input-sha256.txt -p native-next-binary-sha256.txt -p navigation-input-sha256.txt -p navigation-binary-sha256.txt -p terminal-retest-sha256.txt -p terminal-binary-sha256.txt
           cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt native-test-sha256.txt native-guide-sha256.txt | awk -v arch="$ARCH" \
             '$2 == "desktop-" arch ".tar.gz" || $2 == "retry-packager-" arch || $2 == "macos-fixes-" arch ".tar" || $2 == "repack-" arch || $2 == "helico-guide-" arch ".vcdiff"' | shasum -a 256 -c -
           awk -v arch="$ARCH" '$2 == "helico-native-next-" arch ".vcdiff"' native-next-input-sha256.txt | shasum -a 256 -c -
           awk -v arch="$ARCH" '$2 == "helico-navigation-" arch ".vcdiff"' navigation-input-sha256.txt | shasum -a 256 -c -
-          awk -v arch="$ARCH" '$2 == "helico-terminal-tests-" arch ".gz" || $2 == "helico-terminal-" arch ".vcdiff"' terminal-input-sha256.txt | shasum -a 256 -c -
+          awk -v arch="$ARCH" '$2 == "helico-terminal-retest-" arch ".gz" || $2 == "helico-terminal-" arch ".vcdiff"' terminal-retest-sha256.txt | shasum -a 256 -c -
           tar -xzf "desktop-$ARCH.tar.gz"
           mkdir -p build/macos "delta-$ARCH"
           mv helico.png build/macos/
@@ -99,7 +99,7 @@ jobs:
               sleep 2
             done
             codesign --verify --deep --strict native-fixtures/helico.app
-            gzip -dc "helico-terminal-tests-$ARCH.gz" > helico-core-tests
+            gzip -dc "helico-terminal-retest-$ARCH.gz" > helico-core-tests
             chmod 755 helico-core-tests
           ) 2>&1 | tee native-package.txt
 
@@ -114,8 +114,9 @@ jobs:
           bundle="$RUNNER_TEMP/native-fixtures/helico.app/Contents"
           desktop="$bundle/MacOS/helico"
           export HELICO_TEST_TERMINAL_HANDOFF_WAILS="$desktop"
-          ./helico-core-tests -test.v -test.count=1 -test.timeout=6m \
-            -test.run '^TestWailsTerminalHandoff$' 2>&1 | tee native-wails.txt
+          export HELICO_TEST_PORT_WAILS="$desktop"
+          ./helico-core-tests -test.v -test.count=1 -test.timeout=9m \
+            -test.run '^TestWails(TerminalHandoff|TerminalFontSize|PortJump)$' 2>&1 | tee native-wails.txt
 
       - name: Retain native evidence
         if: always()
