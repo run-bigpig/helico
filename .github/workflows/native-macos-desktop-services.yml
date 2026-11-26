@@ -1,0 +1,80 @@
+name: Helico macOS plugin browser and Agent workflows
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-macos-desktop-services.yml]
+permissions:
+  contents: write
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 14
+    steps:
+      - name: Verify native fixtures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          fixture="helico-native-core-followup-v2-$ARCH.test"
+          plugins="helico-native-plugins-$ARCH.tar.gz"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+            -p "$fixture.gz" -p native-core-followup-v2-sha256.txt -p "$plugins" -p native-plugins-sha256.txt
+          awk -v file="$fixture.gz" '$2 == file' native-core-followup-v2-sha256.txt | shasum -a 256 -c -
+          awk -v file="$plugins" '$2 == file' native-plugins-sha256.txt | shasum -a 256 -c -
+          gzip -dc "$fixture.gz" > "$fixture"
+          chmod 755 "$fixture"
+          mkdir -p plugin-fixture
+          tar -xzf "$plugins" -C plugin-fixture bin/page-fixture
+          test -x plugin-fixture/bin/page-fixture
+      - name: Run native workflows
+        env:
+          ARCH: ${{ matrix.arch }}
+          HELICO_TEST_CHROMIUM: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          export HELICO_TEST_PAGE_PLUGIN="$RUNNER_TEMP/plugin-fixture/bin/page-fixture"
+          git --version | tee native-desktop-services.txt
+          "$HELICO_TEST_CHROMIUM" --version | tee -a native-desktop-services.txt
+          tests=(
+            BrowserRPCTabControlAndConversationRemoval
+            AgentProfileNotificationsAfterReconnect AgentProfileAvailabilityAndLegacyDelegationHistory
+            PreparedHandoffSurvivesCoreRestart TaskCodexConversationSurvivesCoreRestart TaskImagesPersistAndReachLaunchPrompt
+            ConversationHelperSharesParentAndRetainsTurnAccounting
+            OpenCodeNativeConversationFork GeminiNativeTaskAndHandoff CodeArtsNativeConversationFork
+            KimiNativeTaskResume CodeArtsNativeTaskRestarts PiNativeConversationFork
+            CodexBackgroundReplay CodexReplayOfHelicoSession CodexReplayOfHelicoPlan
+            TranslationReusesConcurrentProviderRequestAndRetriesFailure ZCodeConfiguredImageProvider
+            TaskRepoStartOptionsFromLocalGit WorktreeMaintenancePreservesPrivateFilesAndRecentConversations
+            UsageHistoryScansOldAndNewSourceData CodexUsageLimitContinuesAfterCoreRestart
+            ClaudeChatLogKeepsCatalogAndRedactsCredentialsAndImages
+          )
+          filter=$(IFS='|'; printf '%s' "${tests[*]}")
+          fixture="./helico-native-core-followup-v2-$ARCH.test"
+          "$fixture" -test.list "^Test($filter)$" > available.txt
+          for name in "${tests[@]}"; do
+            if ! grep -Fxq "Test$name" available.txt; then
+              printf 'Missing native test: %s\n' "$name" | tee -a native-desktop-services.txt
+              exit 1
+            fi
+          done
+          "$fixture" -test.v -test.count=1 -test.timeout=9m \
+            -test.run "^Test($filter)$" 2>&1 | tee -a native-desktop-services.txt
+          grep -Fq 'A native Go plugin opened a real Chromium tab.' native-desktop-services.txt
+      - name: Retain evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-desktop-services-${{ matrix.arch }}
+          path: ${{ runner.temp }}/native-desktop-services.txt
+          retention-days: 14
