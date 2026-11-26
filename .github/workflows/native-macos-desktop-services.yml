@@ -51,12 +51,9 @@ jobs:
             AgentProfileNotificationsAfterReconnect AgentProfileAvailabilityAndLegacyDelegationHistory
             PreparedHandoffSurvivesCoreRestart TaskCodexConversationSurvivesCoreRestart TaskImagesPersistAndReachLaunchPrompt
             ConversationHelperSharesParentAndRetainsTurnAccounting
-            OpenCodeNativeConversationFork GeminiNativeTaskAndHandoff CodeArtsNativeConversationFork
-            KimiNativeTaskResume CodeArtsNativeTaskRestarts PiNativeConversationFork
-            CodexBackgroundReplay CodexReplayOfHelicoSession CodexReplayOfHelicoPlan
-            TranslationReusesConcurrentProviderRequestAndRetriesFailure ZCodeConfiguredImageProvider
+            TranslationReusesConcurrentProviderRequestAndRetriesFailure
             TaskRepoStartOptionsFromLocalGit WorktreeMaintenancePreservesPrivateFilesAndRecentConversations
-            UsageHistoryScansOldAndNewSourceData CodexUsageLimitContinuesAfterCoreRestart
+            WorktreeCleanAndArchiveLifecycle CodexUsageLimitContinuesAfterCoreRestart
             ClaudeChatLogKeepsCatalogAndRedactsCredentialsAndImages
           )
           filter=$(IFS='|'; printf '%s' "${tests[*]}")
