@@ -32,14 +32,27 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP"
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
-            -p "desktop-$ARCH.tar.gz" -p "packager-$ARCH" -p "repack-$ARCH" -p desktop-sha256.txt \
-            -p repack-sha256.txt -p remote-sha256.txt -p helico.png -p verify-dmg-macos.mjs
-          cat desktop-sha256.txt repack-sha256.txt | awk -v arch="$ARCH" \
-            '$2 == "desktop-" arch ".tar.gz" || $2 == "packager-" arch || $2 == "repack-" arch' | shasum -a 256 -c -
+            -p "desktop-$ARCH.tar.gz" -p "fixed-packager-$ARCH" -p "repack-$ARCH" \
+            -p "macos-fixes-$ARCH.tar" -p fixes-sha256.txt -p desktop-sha256.txt \
+            -p repack-sha256.txt -p remote-sha256.txt -p helico.png \
+            -p verify-dmg-macos.mjs -p node-mcp-fixture.cjs
+          cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt | awk -v arch="$ARCH" \
+            '$2 == "desktop-" arch ".tar.gz" || $2 == "fixed-packager-" arch ||             $2 == "macos-fixes-" arch ".tar" || $2 == "repack-" arch' | shasum -a 256 -c -
           tar -xzf "desktop-$ARCH.tar.gz"
-          mkdir -p build/macos
+          mkdir -p build/macos "delta-$ARCH"
           mv helico.png build/macos/
-          chmod +x "packager-$ARCH" "repack-$ARCH"
+          tar -xf "macos-fixes-$ARCH.tar" -C "delta-$ARCH"
+          if ! command -v xdelta3; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install xdelta
+          fi
+          for program in helico helico-core helico-daemon helico-helper helico-channel-gateway helico-mcp; do
+            file="macos-$ARCH-payload/$program"
+            xdelta3 -d -s "$file" "delta-$ARCH/$program.vcdiff" "$file.patched"
+            chmod +x "$file.patched"
+            mv "$file.patched" "$file"
+          done
+          (cd "macos-$ARCH-payload" && shasum -a 256 -c "$RUNNER_TEMP/delta-$ARCH/binary-sha256.txt")
+          chmod +x "fixed-packager-$ARCH" "repack-$ARCH"
           DEB=helico-0.22.0-beta.2-linux-amd64.deb
           gh release download v0.22.0-beta.2 -R "$GITHUB_REPOSITORY" -p "$DEB" -p SHA256SUMS
           awk -v deb="$DEB" '$2 == deb' SHA256SUMS | shasum -a 256 -c -
@@ -61,10 +74,10 @@ jobs:
             sw_vers
             uname -m
             node --version
-            "./packager-$ARCH" -arch "$ARCH" -payload "macos-$ARCH-payload" -out dmg
+            "./fixed-packager-$ARCH" -arch "$ARCH" -payload "macos-$ARCH-payload" -out dmg
             DMG=$(find dmg -name '*.dmg' -print)
             shasum -a 256 "$DMG"
-            node verify-dmg-macos.mjs "$DMG" "$NODE_ARCH" 0.22.0-beta.2
+            node verify-dmg-macos.mjs "$DMG" "$NODE_ARCH" 0.22.0-beta.2 node-mcp-fixture.cjs
           ) 2>&1 | tee native-acceptance.txt
 
       - name: Retain native evidence
