@@ -4,4 +4,6 @@
 
 桌面预览版 0.22.0-beta.2 提供 Linux DEB、AppImage 和 Windows NSIS 安装包。macOS 安装包仍在验收。[下载桌面预览版](https://github.com/run-bigpig/helico/releases/tag/v0.22.0-beta.2)
 
+安装后可在应用的「帮助」中打开使用指南。[中文指南](docs/GETTING-STARTED.md) · [English guide](docs/GETTING-STARTED.en.md)
+
 桌面更新、Go 插件更新和袖蝶宠物资源均从本仓库发布。[发行列表](https://github.com/run-bigpig/helico/releases) · [袖蝶宠物目录](https://github.com/run-bigpig/helico/blob/main/catalog-v2.json) · [反馈问题](https://github.com/run-bigpig/helico/issues/new)
