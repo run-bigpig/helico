@@ -31,20 +31,23 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          for attempt in {1..12}; do
-            if gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
-            -p "payload-$ARCH.tar.gz" -p "packager-$ARCH" -p input-sha256.txt \
-              -p helico.png -p verify-dmg-macos.mjs --clobber; then
-              break
-            fi
-            test "$attempt" -lt 12
-            sleep 15
-          done
-          awk -v arch="$ARCH" '$2 == "payload-" arch ".tar.gz" || $2 == "packager-" arch' input-sha256.txt | shasum -a 256 -c -
-          tar -xzf "payload-$ARCH.tar.gz"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+            -p "desktop-$ARCH.tar.gz" -p "packager-$ARCH" -p "repack-$ARCH" -p desktop-sha256.txt \
+            -p repack-sha256.txt -p remote-sha256.txt -p helico.png -p verify-dmg-macos.mjs
+          cat desktop-sha256.txt repack-sha256.txt | awk -v arch="$ARCH" \
+            '$2 == "desktop-" arch ".tar.gz" || $2 == "packager-" arch || $2 == "repack-" arch' | shasum -a 256 -c -
+          tar -xzf "desktop-$ARCH.tar.gz"
           mkdir -p build/macos
           mv helico.png build/macos/
-          chmod +x "packager-$ARCH"
+          chmod +x "packager-$ARCH" "repack-$ARCH"
+          DEB=helico-0.22.0-beta.2-linux-amd64.deb
+          gh release download v0.22.0-beta.2 -R "$GITHUB_REPOSITORY" -p "$DEB" -p SHA256SUMS
+          awk -v deb="$DEB" '$2 == deb' SHA256SUMS | shasum -a 256 -c -
+          ar -p "$DEB" data.tar.gz | tar -xOzf - ./usr/lib/helico/payload.tar | tar -xf - ./remote
+          for remote_arch in amd64 arm64; do
+            "./repack-$ARCH" "remote/linux-$remote_arch" "macos-$ARCH-payload/remote/linux-$remote_arch.tar.gz"
+          done
+          (cd "macos-$ARCH-payload/remote" && shasum -a 256 -c "$RUNNER_TEMP/remote-sha256.txt")
 
       - name: Build, mount, install and launch DMG
         env:
