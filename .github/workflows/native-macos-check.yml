@@ -37,13 +37,13 @@ jobs:
             -p repack-sha256.txt -p remote-sha256.txt -p helico.png \
             -p mcp-acceptance.tar.gz -p mcp-acceptance-sha256.txt \
             -p "helico-guide-$ARCH.vcdiff" -p "helico-native-next-$ARCH.vcdiff" \
-            -p "helico-core-tests-jade-retry-$ARCH.gz" -p codex-plan.jsonl \
+            -p "helico-navigation-tests-$ARCH.gz" -p "helico-navigation-$ARCH.vcdiff" \
             -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt \
-            -p native-next-input-sha256.txt -p native-next-binary-sha256.txt -p native-jade-retry-sha256.txt
+            -p native-next-input-sha256.txt -p native-next-binary-sha256.txt -p navigation-input-sha256.txt -p navigation-binary-sha256.txt
           cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt native-test-sha256.txt native-guide-sha256.txt | awk -v arch="$ARCH" \
             '$2 == "desktop-" arch ".tar.gz" || $2 == "retry-packager-" arch || $2 == "macos-fixes-" arch ".tar" || $2 == "repack-" arch || $2 == "helico-guide-" arch ".vcdiff"' | shasum -a 256 -c -
           awk -v arch="$ARCH" '$2 == "helico-native-next-" arch ".vcdiff"' native-next-input-sha256.txt | shasum -a 256 -c -
-          awk -v arch="$ARCH" '$2 == "helico-core-tests-jade-retry-" arch ".gz" || $2 == "codex-plan.jsonl"' native-jade-retry-sha256.txt | shasum -a 256 -c -
+          awk -v arch="$ARCH" '$2 == "helico-navigation-tests-" arch ".gz" || $2 == "helico-navigation-" arch ".vcdiff"' navigation-input-sha256.txt | shasum -a 256 -c -
           tar -xzf "desktop-$ARCH.tar.gz"
           mkdir -p build/macos "delta-$ARCH"
           mv helico.png build/macos/
@@ -84,7 +84,9 @@ jobs:
             (cd update-delta && awk -v arch="$ARCH" '$2 == "helico-guide-" arch { print $1, " helico" }' ../native-guide-binary-sha256.txt | shasum -a 256 -c -)
             xdelta3 -d -s update-delta/helico "helico-native-next-$ARCH.vcdiff" "helico-fullscreen-frame-$ARCH"
             awk -v arch="$ARCH" '$2 == "helico-fullscreen-frame-" arch' native-next-binary-sha256.txt | shasum -a 256 -c -
-            install -m 755 "helico-fullscreen-frame-$ARCH" "$payload/helico"
+            xdelta3 -d -s "helico-fullscreen-frame-$ARCH" "helico-navigation-$ARCH.vcdiff" "helico-navigation-$ARCH"
+            awk -v arch="$ARCH" '$2 == "helico-navigation-" arch' navigation-binary-sha256.txt | shasum -a 256 -c -
+            install -m 755 "helico-navigation-$ARCH" "$payload/helico"
             "./retry-packager-$ARCH" -arch "$ARCH" -payload "$payload" -out dmg-native -version 0.22.0-beta.2
             hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/native-mount" dmg-native/*.dmg
             ditto "$RUNNER_TEMP/native-mount/helico.app" "$RUNNER_TEMP/native-fixtures/helico.app"
@@ -94,7 +96,7 @@ jobs:
               sleep 2
             done
             codesign --verify --deep --strict native-fixtures/helico.app
-            gzip -dc "helico-core-tests-jade-retry-$ARCH.gz" > helico-core-tests
+            gzip -dc "helico-navigation-tests-$ARCH.gz" > helico-core-tests
             chmod 755 helico-core-tests
           ) 2>&1 | tee native-package.txt
 
@@ -108,28 +110,9 @@ jobs:
           cd "$RUNNER_TEMP"
           bundle="$RUNNER_TEMP/native-fixtures/helico.app/Contents"
           desktop="$bundle/MacOS/helico"
-          export HELICO_TEST_MCP_WAILS="$desktop" HELICO_TEST_MCP_INSTALL="$bundle/MacOS"
-          export HELICO_TEST_MCP_FIXTURE="$RUNNER_TEMP/native-fixtures/fixture"
-          export HELICO_TEST_THEME_WAILS="$desktop" HELICO_TEST_UPDATE_WAILS="$desktop"
-          export HELICO_TEST_PERMISSIONS_WAILS="$desktop" HELICO_TEST_PROJECTS_WAILS="$desktop"
-          export HELICO_TEST_SPLIT_WAILS="$desktop" HELICO_TEST_FULLSCREEN_WAILS="$desktop"
-          export HELICO_TEST_PANEL_TRANSFERS_WAILS="$desktop"
-          export HELICO_TEST_PORT_WAILS="$desktop" HELICO_TEST_SOURCE_SETTINGS_WAILS="$desktop"
-          export HELICO_TEST_SOURCE_PACKAGES="$RUNNER_TEMP/native-plugins"
-          export HELICO_TEST_SETUP_WAILS="$desktop" HELICO_TEST_SETUP_CORE="$bundle/MacOS/helico-core"
-          export HELICO_TEST_PET_WAILS="$desktop" HELICO_TEST_FILE_HANDOFF_WAILS="$desktop"
-          export HELICO_TEST_RICH_CHAT_WAILS="$desktop"
-          chromium='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-          if [ -x "$chromium" ]; then export HELICO_TEST_CHROMIUM="$chromium"; fi
-          if defaults write com.apple.universalaccess reduceMotion -bool true; then
-            defaults read com.apple.universalaccess reduceMotion
-          fi
-          fixture_root="$RUNNER_TEMP/test-source"
-          mkdir -p "$fixture_root/internal/core" "$fixture_root/testdata/antumi/codex"
-          cp "$RUNNER_TEMP/codex-plan.jsonl" "$fixture_root/testdata/antumi/codex/"
-          cd "$fixture_root/internal/core"
-          "$RUNNER_TEMP/helico-core-tests" -test.v -test.count=1 -test.timeout=12m \
-            -test.run '^(TestWailsPetCatalogAndRestart|TestWailsFileHandoff|TestWailsAppearanceSearchAndRestart|TestWailsRichConversation|TestWailsProjectSettings|TestBrowserRPCTabControlAndConversationRemoval)$' 2>&1 | tee "$RUNNER_TEMP/native-wails.txt"
+          export HELICO_TEST_NAVIGATION_WAILS="$desktop" HELICO_TEST_UPDATE_WAILS="$desktop"
+          ./helico-core-tests -test.v -test.count=1 -test.timeout=6m \
+            -test.run '^(TestWailsNavigationAndSidebar|TestWailsUpdatePrerelease)$' 2>&1 | tee native-wails.txt
 
       - name: Retain native evidence
         if: always()
