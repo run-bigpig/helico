@@ -50,6 +50,7 @@ jobs:
             -p "helico-appkit-confirm-$ARCH-tests.vcdiff" -p appkit-menu-confirm-sha256.txt \
             -p "helico-browser-data-$ARCH-tests.vcdiff" -p browser-data-sha256.txt \
             -p "helico-browser-exit-darwin-$ARCH-tests.vcdiff" -p browser-exit-sha256.txt \
+            -p "helico-mac-reopen-$ARCH-desktop.vcdiff" -p "helico-mac-reopen-$ARCH-tests.vcdiff" -p mac-reopen-sha256.txt \
             -p "helico-terminal-trace-test-$ARCH.vcdiff" -p terminal-trace-sha256.txt \
             -p "helico-terminal-observe-test-$ARCH.vcdiff" -p terminal-observe-test-sha256.txt \
             -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt \
@@ -125,7 +126,11 @@ jobs:
             menu_desktop="helico-appkit-$ARCH-desktop"
             xdelta3 -d -s "$payload/helico" "$menu_desktop.vcdiff" "$menu_desktop"
             awk -v name="$menu_desktop" '$2 == name' appkit-menu-sha256.txt | shasum -a 256 -c -
-            install -m 755 "$menu_desktop" "$payload/helico"
+            reopen_desktop="helico-mac-reopen-$ARCH-desktop"
+            awk -v name="$reopen_desktop" '$2 == name ".vcdiff"' mac-reopen-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s "$menu_desktop" "$reopen_desktop.vcdiff" "$reopen_desktop"
+            awk -v name="$reopen_desktop" '$2 == name' mac-reopen-sha256.txt | shasum -a 256 -c -
+            install -m 755 "$reopen_desktop" "$payload/helico"
             "./retry-packager-$ARCH" -arch "$ARCH" -payload "$payload" -out dmg-native -version 0.22.0-beta.2
             hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/native-mount" dmg-native/*.dmg
             ditto "$RUNNER_TEMP/native-mount/helico.app" "$RUNNER_TEMP/native-fixtures/helico.app"
@@ -164,11 +169,15 @@ jobs:
             awk -v name="$exit_tests" '$2 == name ".vcdiff"' browser-exit-sha256.txt | shasum -a 256 -c -
             xdelta3 -d -s helico-core-tests "$exit_tests.vcdiff" "$exit_tests"
             awk -v name="$exit_tests" '$2 == name' browser-exit-sha256.txt | shasum -a 256 -c -
-            mv "$exit_tests" helico-core-tests
+            reopen_tests="helico-mac-reopen-$ARCH-tests"
+            awk -v name="$reopen_tests" '$2 == name ".vcdiff"' mac-reopen-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s "$exit_tests" "$reopen_tests.vcdiff" "$reopen_tests"
+            awk -v name="$reopen_tests" '$2 == name' mac-reopen-sha256.txt | shasum -a 256 -c -
+            mv "$reopen_tests" helico-core-tests
             chmod 755 helico-core-tests
           ) 2>&1 | tee native-package.txt
 
-      - name: Run installed settings and desktop tests
+      - name: Run installed desktop reopen and browser tests
         env:
           GH_TOKEN: ${{ github.token }}
           ARCH: ${{ matrix.goarch }}
@@ -181,9 +190,9 @@ jobs:
           export HELICO_TEST_CHROMIUM='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
           test -x "$HELICO_TEST_CHROMIUM"
           "$HELICO_TEST_CHROMIUM" --version | tee native-wails.txt
-          export HELICO_TEST_BOOKMARKS_WAILS="$desktop"
+          export HELICO_TEST_MAC_REOPEN_WAILS="$desktop" HELICO_TEST_BOOKMARKS_WAILS="$desktop"
           ./helico-core-tests -test.v -test.count=1 -test.timeout=9m \
-            -test.run '^Test(WailsChromiumBookmarkProfiles|BrowserHistoryRecordsLoadedTitles)$' 2>&1 | tee -a native-wails.txt
+            -test.run '^Test(WailsReopenMainWindowOnMac|WailsChromiumBookmarkProfiles)$' 2>&1 | tee -a native-wails.txt
 
       - name: Retain native evidence
         if: always()
