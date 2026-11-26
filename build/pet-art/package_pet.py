@@ -14,6 +14,8 @@ from PIL import Image
 
 def pack_release(assets, release, repository="run-bigpig/helico"):
     manifest = json.loads((assets / "manifest.json").read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("rig"), dict):
+        raise ValueError("expected a manifest with a rig object")
     pet_id, version = manifest["id"], manifest["version"]
     if manifest["format"] != 1 or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", pet_id):
         raise ValueError("expected a Format 1 manifest with a valid pet ID")
