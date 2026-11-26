@@ -48,6 +48,7 @@ jobs:
             -p "helico-appkit-$ARCH-desktop.vcdiff" -p "helico-appkit-$ARCH-tests.vcdiff" \
             -p appkit-menu-sha256.txt \
             -p "helico-appkit-confirm-$ARCH-tests.vcdiff" -p appkit-menu-confirm-sha256.txt \
+            -p "helico-browser-data-$ARCH-tests.vcdiff" -p browser-data-sha256.txt \
             -p "helico-terminal-trace-test-$ARCH.vcdiff" -p terminal-trace-sha256.txt \
             -p "helico-terminal-observe-test-$ARCH.vcdiff" -p terminal-observe-test-sha256.txt \
             -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt \
@@ -153,6 +154,11 @@ jobs:
             xdelta3 -d -s helico-core-tests "$menu_tests.vcdiff" "$menu_tests"
             awk -v name="$menu_tests" '$2 == name' appkit-menu-confirm-sha256.txt | shasum -a 256 -c -
             mv "$menu_tests" helico-core-tests
+            browser_tests="helico-browser-data-$ARCH-tests"
+            awk -v name="$browser_tests" '$2 == name ".vcdiff"' browser-data-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s helico-core-tests "$browser_tests.vcdiff" "$browser_tests"
+            awk -v name="$browser_tests" '$2 == name' browser-data-sha256.txt | shasum -a 256 -c -
+            mv "$browser_tests" helico-core-tests
             chmod 755 helico-core-tests
           ) 2>&1 | tee native-package.txt
 
@@ -166,12 +172,12 @@ jobs:
           cd "$RUNNER_TEMP"
           bundle="$RUNNER_TEMP/native-fixtures/helico.app/Contents"
           desktop="$bundle/MacOS/helico"
-          export HELICO_TEST_PROJECTS_WAILS="$desktop"
-          export HELICO_TEST_PERMISSIONS_WAILS="$desktop"
-          export HELICO_TEST_THEME_WAILS="$desktop"
-          export HELICO_TEST_UPDATE_WAILS="$desktop"
+          export HELICO_TEST_CHROMIUM='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+          test -x "$HELICO_TEST_CHROMIUM"
+          "$HELICO_TEST_CHROMIUM" --version | tee native-wails.txt
+          export HELICO_TEST_BOOKMARKS_WAILS="$desktop"
           ./helico-core-tests -test.v -test.count=1 -test.timeout=9m \
-            -test.run '^TestWails(ProjectSettings|RunPermissionSettings|NativeTheme|AppearanceSearchAndRestart|UpdatePrerelease)$' 2>&1 | tee native-wails.txt
+            -test.run '^Test(WailsChromiumBookmarkProfiles|BrowserRPCTabControlAndConversationRemoval)$' 2>&1 | tee -a native-wails.txt
 
       - name: Retain native evidence
         if: always()
