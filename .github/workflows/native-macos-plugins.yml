@@ -51,7 +51,14 @@ jobs:
             printf '%s  %s\n' "${digest#sha256:}" "$package" >> "$package_manifest"
             gh release download "$tag" -R "$GITHUB_REPOSITORY" -p "$package" -D bin/recommended-plugins
           done
-          (cd bin/recommended-plugins && shasum -a 256 -c "$package_manifest")
+          (
+            cd bin/recommended-plugins
+            shasum -a 256 -c "$package_manifest"
+            for package in helico.*.zip; do
+              name="${package%%-*}"
+              mv -- "$package" "$name.zip"
+            done
+          )
           file bin/helico-core bin/page-fixture
       - name: Exercise native plugin and source workflows
         run: |
