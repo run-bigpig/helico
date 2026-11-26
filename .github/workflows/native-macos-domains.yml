@@ -1,0 +1,65 @@
+name: Helico macOS workspaces and desktop services
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-macos-domains.yml]
+permissions:
+  contents: write
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    steps:
+      - name: Verify existing core test binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          fixture="helico-native-core-followup-v2-$ARCH.test"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" -p "$fixture.gz" -p native-core-followup-v2-sha256.txt
+          awk -v file="$fixture.gz" '$2 == file' native-core-followup-v2-sha256.txt | shasum -a 256 -c -
+          gzip -dc "$fixture.gz" > "$fixture"
+          chmod 755 "$fixture"
+      - name: Run workstation and core domains
+        env:
+          ARCH: ${{ matrix.arch }}
+          HELICO_TEST_AWAKE_NATIVE: '1'
+          HELICO_TEST_DISCUSSION_FORMATS: '1'
+          HELICO_TEST_CHROMIUM: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          git --version | tee native-domains.txt
+          "$HELICO_TEST_CHROMIUM" --version | tee -a native-domains.txt
+          tests=(
+            BrowserRPCTabControlAndConversationRemoval BrowserHistoryRecordsLoadedTitles ComputerAwakeNative
+            EnvironmentRPCFindsCLIAndRefreshes GitWriteRPCs TaskChangesAcrossWorktreeHistory TaskWorkspaceExecutionAndPlanning
+            TaskRedoRestoresRepositoriesAfterCheckoutFailure PortOwnershipUsesTerminalConversationAndUniqueWorktree
+            ForkRetainsOnlyTheSelectedTurnAndPersistsIndependentHistory ConversationTitleNamingCountsRoundsAndRespectsManualRename
+            StoppedConversationReadsSQLiteHistoryWithoutWireLog ChatWatchUnsubscribeKeepsOtherClients ChatWatchSnapshotDoesNotRepeatQueuedAppends
+            SquadCatalogPreservesLegacyRows SquadRunHistoryReadsOriginalSnapshots DiscussionRoundtableThroughGoDaemon
+            DiscussionReviewAndResearchKeepMemberPromptsSeparate DiscussionMembersUseSeparateModelProviders KnowledgeRegistrySettingsAndStagePermissions
+            ChannelCoreIPCAndRestart ChannelLockedCodexAndProjectTools LegacyScheduleRowsKeepLimitAndRoutineHistory
+            SchedulesUseNativeDaemonAndRecover QuotaCreditRetriesAfterRestartAndChecksIdentity ProjectFileSearchRanksMatchesAndRespectsGitIgnore
+            CodexTaskReferenceEditPaths DSHFileTargetsRespectProjectAndReferenceRoots
+          )
+          filter=$(IFS='|'; printf '%s' "${tests[*]}")
+          "./helico-native-core-followup-v2-$ARCH.test" -test.v -test.count=1 -test.timeout=8m \
+            -test.run "^Test($filter)$" 2>&1 | tee -a native-domains.txt
+      - name: Retain evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-domains-${{ matrix.arch }}
+          path: ${{ runner.temp }}/native-domains.txt
+          retention-days: 14
