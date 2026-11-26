@@ -41,10 +41,38 @@ jobs:
           "./$fixture" -test.v -test.count=1 -test.timeout=9m \
             -test.run '^Test(BrowserHostTabOwnershipAndEvents|BrowserHostProtocol|ChromiumPersistentOffscreenTab|ChromiumDevToolsKeepsTheInspectedTab|ChromiumPluginSession)$' \
             2>&1 | tee -a browser-host.txt
+      - name: Run browser, discussion, and account workflows through Go core
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          fixture="helico-core-protocol-$ARCH.test"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+            -p "$fixture.gz" -p native-core-protocol-sha256.txt
+          awk -v file="$fixture.gz" '$2 == file' native-core-protocol-sha256.txt | shasum -a 256 -c -
+          gzip -dc "$fixture.gz" > "$fixture"
+          chmod 755 "$fixture"
+          export HELICO_TEST_CHROMIUM='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+          test -x "$HELICO_TEST_CHROMIUM"
+          tests=(
+            BrowserRPCTabControlAndConversationRemoval DiscussionRoundtableThroughGoDaemon
+            AgentDelegationThroughGoDaemon AgentProfileAvailabilityAndLegacyDelegationHistory
+            SquadCallCreatesTaskAndDeliversReview SquadWorkThroughGoDaemon SquadTaskLaunchAndApprovedPlan
+            AttachmentStoragePreservesReferences ManagedSkillRepositoryLifecycle
+            PullRequestsReadOldLinksAndListBaseBranches ClaudeManagedAccountPreservesConfigurationAndQuota
+          )
+          filter=$(IFS='|'; printf '%s' "${tests[*]}")
+          "./$fixture" -test.v -test.count=1 -test.timeout=6m -test.run "^Test($filter)$" 2>&1 | tee native-core-protocol.txt
+
       - name: Retain evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: native-browser-host-${{ matrix.arch }}
-          path: ${{ runner.temp }}/browser-host.txt
+          path: |
+            ${{ runner.temp }}/browser-host.txt
+            ${{ runner.temp }}/native-core-protocol.txt
           retention-days: 14
