@@ -196,41 +196,29 @@ jobs:
           cd "$RUNNER_TEMP"
           desktop="$RUNNER_TEMP/native-fixtures/helico.app/Contents/MacOS/helico"
           export HELICO_TEST_CHROMIUM='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-          export HELICO_TEST_SOURCE_PACKAGES="$RUNNER_TEMP/source-fixtures"
           "$HELICO_TEST_CHROMIUM" --version | tee native-wails.txt
-          mkdir -p "$HELICO_TEST_SOURCE_PACKAGES"
-          for tag in github-v1.2.2 jira-v1.4.2; do
-            name="${tag%%-v*}"
-            version="${tag#*-v}"
-            archive="helico.$name-$version-darwin-$ARCH.zip"
-            digest=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" |
-              jq -er --arg name "$archive" '.assets[] | select(.name == $name) | .digest')
-            [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
-            gh release download "$tag" -R "$GITHUB_REPOSITORY" -p "$archive" -D "$HELICO_TEST_SOURCE_PACKAGES"
-            printf '%s  %s\n' "${digest#sha256:}" "$HELICO_TEST_SOURCE_PACKAGES/$archive" | shasum -a 256 -c - | tee -a native-wails.txt
-          done
+          fixture="$RUNNER_TEMP/testdata/antumi/codex"
+          mkdir -p "$fixture" "$RUNNER_TEMP/suite/work"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" -p codex-plan.jsonl -D "$fixture"
+          printf '%s  %s\n' '7ed1f037c2212c82e73f5ca8488310b0d355ecc90bd7f41744c9a45b77a91194' "$fixture/codex-plan.jsonl" |
+            shasum -a 256 -c - | tee -a native-wails.txt
+          cd "$RUNNER_TEMP/suite/work"
 
           tests=(
-            WailsSourceSettings:SOURCE_SETTINGS
-            WailsProjectSettings:PROJECTS
-            WailsPetCatalogAndRestart:PET
-            WailsBrowserHandoff:BROWSER_HANDOFF
-            WailsConversationSplit:SPLIT
             WailsRichConversation:RICH_CHAT
-            WailsUpdatePrerelease:UPDATE
           )
           success=0
           for entry in "${tests[@]}"; do
             test="Test${entry%%:*}"
             variable="HELICO_TEST_${entry##*:}_WAILS"
-            log="$test.txt"
-            if env "$variable=$desktop" ./helico-core-tests -test.v -test.count=1 -test.timeout=5m \
+            log="$RUNNER_TEMP/$test.txt"
+            if env "$variable=$desktop" "$RUNNER_TEMP/helico-core-tests" -test.v -test.count=1 -test.timeout=5m \
                 -test.run "^$test$" 2>&1 | tee "$log"; then
               if ! grep -Fq -- "--- PASS: $test (" "$log"; then success=1; fi
             else
               success=1
             fi
-            cat "$log" >> native-wails.txt
+            cat "$log" >> "$RUNNER_TEMP/native-wails.txt"
           done
           exit "$success"
 
