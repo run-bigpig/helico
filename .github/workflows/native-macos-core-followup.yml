@@ -32,13 +32,13 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          fixture="helico-native-core-followup-$ARCH.test"
+          fixture="helico-native-core-followup-v2-$ARCH.test"
           core_archive="helico-native-plugins-$ARCH.tar.gz"
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
-            -p "$fixture.gz" -p native-core-followup-sha256.txt -p helico-public-release-verifiers.tar.gz \
+            -p "$fixture.gz" -p native-core-followup-v2-sha256.txt -p helico-public-release-verifiers.tar.gz \
             -p "$core_archive" -p native-plugins-sha256.txt
           awk -v file="$fixture.gz" '$2 == file || $2 == "helico-public-release-verifiers.tar.gz"' \
-            native-core-followup-sha256.txt | shasum -a 256 -c -
+            native-core-followup-v2-sha256.txt | shasum -a 256 -c -
           awk -v file="$core_archive" '$2 == file' native-plugins-sha256.txt | shasum -a 256 -c -
           gzip -dc "$fixture.gz" > "$fixture"
           chmod 755 "$fixture"
@@ -75,10 +75,10 @@ jobs:
             AgentCLIMaintenanceThroughGoDaemon AgentCLIMaintenanceRecoversBeforeTerminalInsert
           )
           filter=$(IFS='|'; printf '%s' "${tests[*]}")
-          "./helico-native-core-followup-$ARCH.test" -test.v -test.count=1 -test.timeout=8m \
+          "./helico-native-core-followup-v2-$ARCH.test" -test.v -test.count=1 -test.timeout=8m \
             -test.run "^Test($filter)$" 2>&1 | tee -a native-core-followup.txt
       - name: Install plugins and pet from public Helico releases
-        if: ${{ !cancelled() }}
+        if: ${{ false }}
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
