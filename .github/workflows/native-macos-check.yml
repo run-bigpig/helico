@@ -36,8 +36,7 @@ jobs:
             -p "macos-fixes-$ARCH.tar" -p fixes-sha256.txt -p desktop-sha256.txt \
             -p repack-sha256.txt -p remote-sha256.txt -p helico.png \
             -p verify-dmg-macos.mjs -p node-mcp-fixture.cjs \
-            -p "macos-update-$ARCH.tar" -p update-v3-sha256.txt -p verify-update-macos-v3.mjs \
-            -p "diagnostic-$ARCH.vcdiff" -p verify-update-macos-diagnostic.mjs
+            -p "macos-update-popover-$ARCH.tar" -p update-popover-sha256.txt -p verify-update-macos-popover.mjs
           cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt | awk -v arch="$ARCH" \
             '$2 == "desktop-" arch ".tar.gz" || $2 == "fixed-packager-" arch ||             $2 == "macos-fixes-" arch ".tar" || $2 == "repack-" arch' | shasum -a 256 -c -
           tar -xzf "desktop-$ARCH.tar.gz"
@@ -72,23 +71,21 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP"
           (
-            awk -v arch="$ARCH" '$2 == "macos-update-" arch ".tar" || $2 == "verify-update-macos-v3.mjs"' update-v3-sha256.txt | shasum -a 256 -c -
+            awk -v arch="$ARCH" '$2 == "macos-update-popover-" arch ".tar" || $2 == "verify-update-macos-popover.mjs"' update-popover-sha256.txt | shasum -a 256 -c -
             payload="macos-$ARCH-payload"
             mkdir -p update-delta update-programs/previous update-programs/next dmg-update
-            tar -xf "macos-update-$ARCH.tar" -C update-delta
+            tar -xf "macos-update-popover-$ARCH.tar" -C update-delta
             for item in previous/helico next/helico next/helico-core; do
               patch=$(printf '%s' "$item" | tr '/' '-').vcdiff
               xdelta3 -d -s "$payload/${item##*/}" "update-delta/$patch" "update-programs/$item"
             done
             (cd update-programs && shasum -a 256 -c ../update-delta/binary-sha256.txt)
-            xdelta3 -d -s update-programs/previous/helico "diagnostic-$ARCH.vcdiff" "$payload/helico.diagnostic"
-            install -m 755 "$payload/helico.diagnostic" "$payload/helico"
-            rm "$payload/helico.diagnostic"
+            install -m 755 update-programs/previous/helico "$payload/helico"
             "./fixed-packager-$ARCH" -arch "$ARCH" -payload "$payload" -out dmg-update -version 0.22.0-beta.2
             install -m 755 update-programs/next/helico "$payload/helico"
             install -m 755 update-programs/next/helico-core "$payload/helico-core"
             "./fixed-packager-$ARCH" -arch "$ARCH" -payload "$payload" -out dmg-update -version 0.22.0
-            node verify-update-macos-diagnostic.mjs dmg-update/*beta.2*.dmg dmg-update/helico-0.22.0-macos-*.dmg
+            node verify-update-macos-popover.mjs dmg-update/*beta.2*.dmg dmg-update/helico-0.22.0-macos-*.dmg
           ) 2>&1 | tee native-update.txt
 
       - name: Retain native evidence
