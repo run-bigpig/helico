@@ -1,0 +1,72 @@
+name: Helico native macOS Go plugins
+
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-macos-plugins.yml]
+
+permissions:
+  contents: write # Access to the draft acceptance inputs.
+
+jobs:
+  plugins:
+    name: Go plugins (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+          - runner: macos-15
+            arch: arm64
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Verify fixtures and released plugin packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          archive="helico-native-plugins-$ARCH.tar.gz"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+            -p "$archive" -p native-plugins-sha256.txt
+          awk -v file="$archive" '$2 == file' native-plugins-sha256.txt | shasum -a 256 -c -
+          mkdir -p plugin-fixture
+          tar -xzf "$archive" -C plugin-fixture
+          cd plugin-fixture
+          mkdir -p bin/recommended-plugins
+          package_manifest="$RUNNER_TEMP/plugin-archives-sha256.txt"
+          for tag in github-v1.2.2 jira-v1.4.2 linear-v0.3.2 zentao-v0.3.2 meegle-v0.2.2 pingcode-v0.1.0; do
+            name="${tag%%-v*}"
+            version="${tag#*-v}"
+            package="helico.$name-$version-darwin-$ARCH.zip"
+            digest=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" |
+              jq -er --arg name "$package" '.assets[] | select(.name == $name) | .digest')
+            [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+            printf '%s  %s\n' "${digest#sha256:}" "$package" >> "$package_manifest"
+            gh release download "$tag" -R "$GITHUB_REPOSITORY" -p "$package" -D bin/recommended-plugins
+          done
+          (cd bin/recommended-plugins && shasum -a 256 -c "$package_manifest")
+          file bin/helico-core bin/page-fixture
+      - name: Exercise native plugin and source workflows
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/plugin-fixture"
+          node --version | tee "$RUNNER_TEMP/native-plugins.txt"
+          node testdata/plugins/verify-core.mjs bin/helico-core bin/page-fixture \
+            --bundled-recommendations --attachments --source-updates \
+            2>&1 | tee -a "$RUNNER_TEMP/native-plugins.txt"
+      - name: Retain evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-plugins-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/native-plugins.txt
+            ${{ runner.temp }}/plugin-archives-sha256.txt
+          retention-days: 14
