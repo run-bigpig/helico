@@ -1,0 +1,101 @@
+name: Helico native macOS protocol and public updates
+
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-macos-core-followup.yml]
+
+permissions:
+  contents: write # Download the acceptance draft release inputs.
+
+jobs:
+  macos:
+    name: Native Helico protocol and updates (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Verify acceptance inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          fixture="helico-native-core-followup-$ARCH.test"
+          core_archive="helico-native-plugins-$ARCH.tar.gz"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+            -p "$fixture.gz" -p native-core-followup-sha256.txt -p helico-public-release-verifiers.tar.gz \
+            -p "$core_archive" -p native-plugins-sha256.txt
+          awk -v file="$fixture.gz" '$2 == file || $2 == "helico-public-release-verifiers.tar.gz"' \
+            native-core-followup-sha256.txt | shasum -a 256 -c -
+          awk -v file="$core_archive" '$2 == file' native-plugins-sha256.txt | shasum -a 256 -c -
+          gzip -dc "$fixture.gz" > "$fixture"
+          chmod 755 "$fixture"
+          mkdir -p release-check bundled-core/recommended-plugins
+          tar -xzf helico-public-release-verifiers.tar.gz -C release-check
+          tar -xzf "$core_archive" -C release-check bin/helico-core
+          cp release-check/bin/helico-core bundled-core/helico-core
+          old="helico.github-1.2.1-darwin-$ARCH.zip"
+          digest=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/github-v1.2.1" |
+            jq -er --arg name "$old" '.assets[] | select(.name == $name) | .digest')
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          gh release download github-v1.2.1 -R "$GITHUB_REPOSITORY" -p "$old"
+          printf '%s  %s\n' "${digest#sha256:}" "$old" | shasum -a 256 -c -
+          mv "$old" bundled-core/recommended-plugins/helico.github.zip
+      - name: Exercise authenticated Go core and native PTY
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          git --version | tee native-core-followup.txt
+          export HELICO_TEST_ZSH_BINARY="$(command -v zsh)"
+          "$HELICO_TEST_ZSH_BINARY" --version | tee -a native-core-followup.txt
+          tests=(
+            TerminalDetachKeepsPTYAndOffsets TerminalNativeZshPrompt ConversationTerminalToolsThroughGoDaemon
+            ProjectConfigSuggestionsAndSaveFromSubdirectory ProjectStarRPC WorktreeMaintenancePreservesPrivateFilesAndRecentConversations
+            TaskRepoStartOptionsFromLocalGit TaskImagesPersistAndReachLaunchPrompt AgentProfileNotificationsAfterReconnect
+            SavedCommandsKeepLegacyRowsAndNotify UsageLimitSuppressesStaleAndRepeatedContinuation
+            CodexUsageLimitContinuesAfterCoreRestart UsageHistoryScansOldAndNewSourceData
+            ConversationHelperSharesParentAndRetainsTurnAccounting SmallModelDashboardImportsLegacyCostsAndRecoversJobs
+            ModelProviderSettingsUseLegacyCredentialFiles AgentCodexAccountSignsInSwitchesAndRecovers
+            CodeBuddyAccountKeysRestoreAndRotate PiSessionImport PreparedHandoffSurvivesCoreRestart
+            GitCommitMessageProviderRoute DiscussionFormatSuggestionUsesCursorQuickMeteringAndRetriesInvalidAnswer
+            AgentCLIMaintenanceThroughGoDaemon AgentCLIMaintenanceRecoversBeforeTerminalInsert
+          )
+          filter=$(IFS='|'; printf '%s' "${tests[*]}")
+          "./helico-native-core-followup-$ARCH.test" -test.v -test.count=1 -test.timeout=8m \
+            -test.run "^Test($filter)$" 2>&1 | tee -a native-core-followup.txt
+      - name: Install plugins and pet from public Helico releases
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          node release-check/testdata/plugins/verify-release.mjs release-check/bin/helico-core \
+            2>&1 | tee plugin-online.txt
+          node release-check/testdata/plugins/verify-release.mjs bundled-core/helico-core 1.2.1 1.2.2 \
+            2>&1 | tee plugin-rollback.txt
+          HELICO_TEST_COMMUNITY_PET_ID=helico-jade node release-check/testdata/desktop/verify-pets.mjs release-check/bin/helico-core \
+            2>&1 | tee pet-online.txt
+      - name: Retain evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-core-followup-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/native-core-followup.txt
+            ${{ runner.temp }}/plugin-online.txt
+            ${{ runner.temp }}/plugin-rollback.txt
+            ${{ runner.temp }}/pet-online.txt
+          retention-days: 14
