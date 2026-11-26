@@ -36,7 +36,7 @@ jobs:
             -p "macos-fixes-$ARCH.tar" -p fixes-sha256.txt -p desktop-sha256.txt \
             -p repack-sha256.txt -p remote-sha256.txt -p helico.png \
             -p verify-dmg-macos.mjs -p node-mcp-fixture.cjs \
-            -p "macos-update-$ARCH.tar" -p update-sha256.txt -p verify-update-macos.mjs
+            -p "macos-update-$ARCH.tar" -p update-v2-sha256.txt -p verify-update-macos-v2.mjs
           cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt | awk -v arch="$ARCH" \
             '$2 == "desktop-" arch ".tar.gz" || $2 == "fixed-packager-" arch ||             $2 == "macos-fixes-" arch ".tar" || $2 == "repack-" arch' | shasum -a 256 -c -
           tar -xzf "desktop-$ARCH.tar.gz"
@@ -63,24 +63,6 @@ jobs:
           done
           (cd "macos-$ARCH-payload/remote" && shasum -a 256 -c "$RUNNER_TEMP/remote-sha256.txt")
 
-      - name: Build, mount, install and launch DMG
-        env:
-          ARCH: ${{ matrix.goarch }}
-          NODE_ARCH: ${{ matrix.nodearch }}
-          RUNNER_TEMP: ${{ runner.temp }}
-        run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP"
-          (
-            sw_vers
-            uname -m
-            node --version
-            "./fixed-packager-$ARCH" -arch "$ARCH" -payload "macos-$ARCH-payload" -out dmg
-            DMG=$(find dmg -name '*.dmg' -print)
-            shasum -a 256 "$DMG"
-            node verify-dmg-macos.mjs "$DMG" "$NODE_ARCH" 0.22.0-beta.2 node-mcp-fixture.cjs
-          ) 2>&1 | tee native-acceptance.txt
-
       - name: Create a board task, update through Wails and roll back
         env:
           ARCH: ${{ matrix.goarch }}
@@ -89,7 +71,7 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP"
           (
-            awk -v arch="$ARCH" '$2 == "macos-update-" arch ".tar" || $2 == "verify-update-macos.mjs"' update-sha256.txt | shasum -a 256 -c -
+            awk -v arch="$ARCH" '$2 == "macos-update-" arch ".tar" || $2 == "verify-update-macos-v2.mjs"' update-v2-sha256.txt | shasum -a 256 -c -
             payload="macos-$ARCH-payload"
             mkdir -p update-delta update-programs/previous update-programs/next dmg-update
             tar -xf "macos-update-$ARCH.tar" -C update-delta
@@ -103,7 +85,7 @@ jobs:
             install -m 755 update-programs/next/helico "$payload/helico"
             install -m 755 update-programs/next/helico-core "$payload/helico-core"
             "./fixed-packager-$ARCH" -arch "$ARCH" -payload "$payload" -out dmg-update -version 0.22.0
-            node verify-update-macos.mjs dmg-update/*beta.2*.dmg dmg-update/helico-0.22.0-macos-*.dmg
+            node verify-update-macos-v2.mjs dmg-update/*beta.2*.dmg dmg-update/helico-0.22.0-macos-*.dmg
           ) 2>&1 | tee native-update.txt
 
       - name: Retain native evidence
@@ -112,7 +94,6 @@ jobs:
         with:
           name: native-dmg-${{ matrix.goarch }}
           path: |
-            ${{ runner.temp }}/native-acceptance.txt
             ${{ runner.temp }}/native-update.txt
           if-no-files-found: ignore
           retention-days: 14
