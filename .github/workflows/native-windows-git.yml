@@ -1,0 +1,46 @@
+name: Helico Windows Git and worktrees
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-windows-git.yml]
+permissions:
+  contents: write
+jobs:
+  native:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Verify native Windows fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          Set-Location $env:RUNNER_TEMP
+          $name = 'helico-git-read-slots-windows.test.exe'
+          gh release download ci-native-macos-check -R $env:GITHUB_REPOSITORY -p "$name.gz" -p helico-git-read-slots-windows-sha256.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to download Windows Git test executable' }
+          $expected = (Get-Content helico-git-read-slots-windows-sha256.txt).Split(' ')[0]
+          if ((Get-FileHash "$name.gz" -Algorithm SHA256).Hash -ne $expected) { throw 'Windows fixture SHA256 mismatch' }
+          $source = [IO.File]::OpenRead((Join-Path $PWD "$name.gz"))
+          $target = [IO.File]::Create((Join-Path $PWD $name))
+          try {
+            $archive = [IO.Compression.GzipStream]::new($source, [IO.Compression.CompressionMode]::Decompress)
+            try { $archive.CopyTo($target) } finally { $archive.Dispose() }
+          } finally { $target.Dispose(); $source.Dispose() }
+      - name: Run Git workflows through the native Go core
+        shell: pwsh
+        run: |
+          Set-Location $env:RUNNER_TEMP
+          git --version | Set-Content native-git.txt
+          $filter = '^Test(GitWriteRPCs|TaskChangesAcrossWorktreeHistory|TaskWorkspaceExecutionAndPlanning|WorktreeCleanAndArchiveLifecycle|PullRequestsReadOldLinksAndListBaseBranches)$'
+          & .\helico-git-read-slots-windows.test.exe '-test.v' '-test.count=1' '-test.timeout=8m' "-test.run=$filter" 2>&1 |
+            Tee-Object -Append native-git.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((Select-String -Path native-git.txt -Pattern '^--- PASS: Test').Count -ne 5) { throw 'Five native workflows must pass' }
+      - name: Retain Windows evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-windows-git
+          path: ${{ runner.temp }}/native-git.txt
+          retention-days: 14
