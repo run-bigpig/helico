@@ -199,12 +199,12 @@ jobs:
           cd "$RUNNER_TEMP"
           archive="helico-native-plugins-$ARCH.tar.gz"
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" -p "$archive" -p native-plugins-sha256.txt \
-            -p verify-plugin-desktop-macos.mjs -p verify-plugin-desktop-macos-sha256.txt
+            -p helico-mac-content-fixture.tar.gz -p helico-mac-content-fixture-sha256.txt
           awk -v f="$archive" '$2 == f' native-plugins-sha256.txt | shasum -a 256 -c -
-          shasum -a 256 -c verify-plugin-desktop-macos-sha256.txt
+          shasum -a 256 -c helico-mac-content-fixture-sha256.txt
           mkdir plugin-fixture
           tar -xzf "$archive" -C plugin-fixture
-          cp verify-plugin-desktop-macos.mjs plugin-fixture/testdata/plugins/verify-core.mjs
+          tar -xzf helico-mac-content-fixture.tar.gz -C plugin-fixture/testdata/plugins
           cd plugin-fixture
           desktop="$RUNNER_TEMP/native-fixtures/helico.app/Contents/MacOS/helico"
           node testdata/plugins/verify-core.mjs bin/helico-core bin/page-fixture "$desktop" --content \
