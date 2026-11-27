@@ -119,6 +119,23 @@ jobs:
           tests='WailsClaudePromptSuggestions|ChannelLockedClaudeAndProjectTools|ProjectFileSearchRanksMatchesAndRespectsGitIgnore|StartMobileIsDeferred'
           fresh/helico-core-tests -test.v -test.count=1 -test.timeout=6m -test.run "^Test($tests)$" 2>&1 | tee evidence/core.txt
           test "$(grep -c '^--- PASS: Test' evidence/core.txt)" -eq 4
+      - name: Verify the default browser homepage
+        if: always() && steps.package.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          fixture="helico-macos-homepage-$ARCH.test"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+            -p "$fixture.gz" -p helico-macos-homepage-sha256.txt
+          awk -v f="$fixture.gz" '$2 == f' helico-macos-homepage-sha256.txt | shasum -a 256 -c -
+          gzip -dc "$fixture.gz" > "$fixture"
+          chmod 755 "$fixture"
+          export HELICO_TEST_BROWSER_HOMEPAGE_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
+          "./$fixture" -test.v -test.count=1 -test.timeout=3m -test.run '^TestWailsBrowserHomepage$' \
+            2>&1 | tee evidence/browser-homepage.txt
+          grep -q '^--- PASS: TestWailsBrowserHomepage' evidence/browser-homepage.txt
       - name: Keep native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
