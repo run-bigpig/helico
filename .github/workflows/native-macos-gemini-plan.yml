@@ -1,0 +1,53 @@
+name: Helico macOS Gemini plan approval
+
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-macos-gemini-plan.yml]
+
+permissions:
+  contents: write # The native test bundles are held in a draft release.
+
+jobs:
+  gemini:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Verify Gemini plan text through the native Go core
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          mkdir programs evidence
+          input="helico-native-gemini-plan-$ARCH.tar.gz"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" -p "$input" -p helico-native-gemini-plan-sha256.txt
+          awk -v f="$input" '$2 == f' helico-native-gemini-plan-sha256.txt | shasum -a 256 -c -
+          tar -xzf "$input" -C programs
+          npm install --prefix gemini --no-save --ignore-scripts --no-audit --no-fund '@google/gemini-cli@0.66.0'
+          export HELICO_TEST_GEMINI_BINARY="$RUNNER_TEMP/gemini/node_modules/.bin/gemini"
+          tests='NativeCatalogAndEnvironment|NativeTaskAndHandoff|PlanApprovalMatchesDarwinTemporaryPath|PlanApprovalMatchesLinkedDirectory'
+          programs/helico-core-tests -test.v -test.count=1 -test.timeout=5m \
+            -test.run "^TestGemini($tests)$" 2>&1 | tee evidence/gemini-plan.txt
+          test "$(grep -c '^--- PASS: TestGemini' evidence/gemini-plan.txt)" -eq 4
+      - name: Keep native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-macos-gemini-plan-${{ matrix.arch }}
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: ignore
+          retention-days: 14
