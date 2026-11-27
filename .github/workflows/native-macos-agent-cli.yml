@@ -44,14 +44,18 @@ jobs:
           mkdir programs evidence
           input="helico-macos-approval-$ARCH.tar.gz"
           dsh="helico-macos-dsh-$ARCH.test"
+          provider="helico-macos-provider-$ARCH.test.gz"
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
             -p "$input" -p helico-macos-approval-sha256.txt \
-            -p "$dsh.gz" -p verify-claude-macos-handoff.mjs -p helico-macos-agent-followup-sha256.txt
+            -p "$dsh.gz" -p verify-claude-macos-handoff.mjs -p helico-macos-agent-followup-sha256.txt \
+            -p "$provider" -p helico-macos-provider-sha256.txt
           awk -v f="$input" '$2 == f' helico-macos-approval-sha256.txt | shasum -a 256 -c -
           awk -v f="$dsh.gz" '$2 == f || $2 == "verify-claude-macos-handoff.mjs"' helico-macos-agent-followup-sha256.txt | shasum -a 256 -c -
+          awk -v f="$provider" '$2 == f' helico-macos-provider-sha256.txt | shasum -a 256 -c -
           tar -xzf "$input" -C programs
           gzip -dc "$dsh.gz" > "programs/helico-dsh-tests"
-          chmod 755 "programs/helico-dsh-tests"
+          gzip -dc "$provider" > "programs/helico-provider-tests"
+          chmod 755 programs/helico-dsh-tests programs/helico-provider-tests
       - name: Exercise the native OpenCode ACP session and fork
         if: steps.fixtures.outcome == 'success'
         run: |
@@ -130,7 +134,7 @@ jobs:
           cd "$RUNNER_TEMP"
           npm install --prefix gemini --no-save --ignore-scripts --no-audit --no-fund '@google/gemini-cli@0.66.0'
           export HELICO_TEST_GEMINI_BINARY="$RUNNER_TEMP/gemini/node_modules/.bin/gemini"
-          programs/helico-core-tests -test.v -test.count=1 -test.timeout=5m \
+          programs/helico-provider-tests -test.v -test.count=1 -test.timeout=5m \
             -test.run '^TestGeminiNative(CatalogAndEnvironment|TaskAndHandoff)$' 2>&1 | tee evidence/gemini.txt
           test "$(grep -c '^--- PASS: TestGeminiNative' evidence/gemini.txt)" -eq 2
       - name: Exercise native Pi sessions, import, and fork
@@ -164,7 +168,7 @@ jobs:
           export HELICO_TEST_CODEARTS_BINARY="$RUNNER_TEMP/codearts/agentkernel"
           export HELICO_TEST_CODEARTS_CATALOG_BINARY="$HELICO_TEST_CODEARTS_BINARY"
           tests='Environment|Catalog|TaskRestarts|ConversationFork'
-          programs/helico-core-tests -test.v -test.count=1 -test.timeout=10m \
+          programs/helico-provider-tests -test.v -test.count=1 -test.timeout=10m \
             -test.run "^TestCodeArtsNative($tests)$" 2>&1 | tee evidence/codearts.txt
           test "$(grep -c '^--- PASS: TestCodeArtsNative' evidence/codearts.txt)" -eq 4
       - name: Keep native evidence
