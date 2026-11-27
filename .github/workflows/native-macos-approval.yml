@@ -38,9 +38,11 @@ jobs:
           cd "$RUNNER_TEMP"
           base="desktop-$ARCH.tar.gz"
           input="helico-macos-approval-$ARCH.tar.gz"
+          script=helico-macos-approval-fixture-r2.mjs
           packager="retry-packager-$ARCH"
           repack="repack-$ARCH"
-          assets=("$base" desktop-sha256.txt "$packager" native-test-sha256.txt "$repack" repack-sha256.txt remote-sha256.txt "$input" helico-macos-approval-sha256.txt)
+          assets=("$base" desktop-sha256.txt "$packager" native-test-sha256.txt "$repack" repack-sha256.txt remote-sha256.txt
+            "$input" helico-macos-approval-sha256.txt "$script" helico-macos-approval-fixture-r2-sha256.txt)
           patterns=()
           for asset in "${assets[@]}"; do patterns+=(-p "$asset"); done
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" "${patterns[@]}"
@@ -48,9 +50,11 @@ jobs:
           awk -v f="$repack" '$2 == f' repack-sha256.txt | shasum -a 256 -c -
           awk -v f="$packager" '$2 == f' native-test-sha256.txt | shasum -a 256 -c -
           awk -v f="$input" '$2 == f' helico-macos-approval-sha256.txt | shasum -a 256 -c -
+          shasum -a 256 -c helico-macos-approval-fixture-r2-sha256.txt
           tar -xzf "$base"
           mkdir fresh
           tar -xzf "$input" -C fresh
+          install -m 644 "$script" fresh/verify-codex-restart.mjs
           payload="macos-$ARCH-payload"
           for program in helico helico-core helico-daemon helico-helper helico-channel-gateway helico-mcp; do
             install -m 755 "fresh/$program" "$payload/$program"
