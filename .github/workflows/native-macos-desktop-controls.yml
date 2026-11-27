@@ -1,0 +1,105 @@
+name: Helico installed macOS Git and desktop controls
+
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-macos-desktop-controls.yml]
+
+permissions:
+  contents: write # The acceptance inputs are held in a draft release.
+
+jobs:
+  installed:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 18
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Assemble the acceptance payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          base="desktop-$ARCH.tar.gz"
+          input="helico-macos-approval-$ARCH.tar.gz"
+          packager="retry-packager-$ARCH"
+          repack="repack-$ARCH"
+          assets=("$base" desktop-sha256.txt "$packager" native-test-sha256.txt "$repack" repack-sha256.txt remote-sha256.txt
+            "$input" helico-macos-approval-sha256.txt)
+          patterns=()
+          for asset in "${assets[@]}"; do patterns+=(-p "$asset"); done
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" "${patterns[@]}"
+          awk -v f="$base" '$2 == f' desktop-sha256.txt | shasum -a 256 -c -
+          awk -v f="$repack" '$2 == f' repack-sha256.txt | shasum -a 256 -c -
+          awk -v f="$packager" '$2 == f' native-test-sha256.txt | shasum -a 256 -c -
+          awk -v f="$input" '$2 == f' helico-macos-approval-sha256.txt | shasum -a 256 -c -
+          tar -xzf "$base"
+          mkdir fresh
+          tar -xzf "$input" -C fresh
+          payload="macos-$ARCH-payload"
+          for program in helico helico-core helico-daemon helico-helper helico-channel-gateway helico-mcp; do
+            install -m 755 "fresh/$program" "$payload/$program"
+          done
+          mkdir -p "$payload/remote" build/macos
+          install -m 644 fresh/helico.png build/macos/helico.png
+          deb=helico-0.22.0-beta.2-linux-amd64.deb
+          gh release download v0.22.0-beta.2 -R "$GITHUB_REPOSITORY" -p "$deb" -p SHA256SUMS
+          awk -v f="$deb" '$2 == f' SHA256SUMS | shasum -a 256 -c -
+          ar -p "$deb" data.tar.gz | tar -xOzf - ./usr/lib/helico/payload.tar | tar -xf - ./remote
+          chmod 755 "$repack" "$packager"
+          for remote_arch in amd64 arm64; do
+            "./$repack" "remote/linux-$remote_arch" "$payload/remote/linux-$remote_arch.tar.gz"
+          done
+          (cd "$payload/remote" && shasum -a 256 -c "$RUNNER_TEMP/remote-sha256.txt")
+      - name: Build the DMG and install the app
+        id: package
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          "./retry-packager-$ARCH" -arch "$ARCH" -payload "macos-$ARCH-payload" -out dmg -version 0.22.0-beta.2
+          mkdir -p mount installed evidence
+          hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/mount" dmg/*.dmg
+          trap 'hdiutil detach "$RUNNER_TEMP/mount" || hdiutil detach -force "$RUNNER_TEMP/mount"' EXIT
+          ditto mount/helico.app installed/helico.app
+          codesign --verify --deep --strict installed/helico.app
+      - name: Switch Git worktrees in the detached window and dock it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+            -p helico-native-git-workspace.tar.gz -p helico-native-git-workspace-sha256.txt
+          shasum -a 256 -c helico-native-git-workspace-sha256.txt
+          mkdir git-fixture
+          tar -xzf helico-native-git-workspace.tar.gz -C git-fixture
+          programs="$RUNNER_TEMP/installed/helico.app/Contents/MacOS"
+          node git-fixture/testdata/desktop/verify-git-manager.mjs "$programs" "$programs/helico" /usr/bin/git \
+            2>&1 | tee evidence/git.txt
+      - name: Check availability of system input and accessibility
+        if: always() && steps.package.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          swift -e 'import AppKit; import CoreGraphics; print("accessibility: \(AXIsProcessTrusted()), post events: \(CGPreflightPostEventAccess())")' \
+            2>&1 | tee evidence/input-access.txt
+      - name: Keep native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-macos-desktop-controls-${{ matrix.arch }}
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: ignore
+          retention-days: 14
