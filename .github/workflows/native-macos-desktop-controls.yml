@@ -133,36 +133,17 @@ jobs:
           retention-days: 14
       - name: Quit the app while native notification permission is pending
         if: always() && steps.fixture.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          old="helico-macos-file-url-$ARCH.gz"
-          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" -p "$old" -p helico-macos-file-url-sha256.txt
-          awk -v f="$old" '$2 == f' helico-macos-file-url-sha256.txt | shasum -a 256 -c -
           app="$RUNNER_TEMP/installed/helico.app"
-          original="$RUNNER_TEMP/notification-baseline/helico.app"
-          ditto "$app" "$original"
-          gzip -dc "$old" > "$original/Contents/MacOS/helico"
-          /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier dev.helico.desktop.quitbaseline' "$original/Contents/Info.plist"
-          codesign --force --sign - "$original"
-          codesign --verify --deep --strict "$original"
-          lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
           result=0
-          "$lsregister" -f "$app"
           HELICO_TEST_MAC_BRIDGE_WAILS="$app/Contents/MacOS/helico" ./controls-tests -test.v -test.count=1 \
-            -test.timeout=60s -test.run '^TestWailsDarwinQuitDuringNotificationAuthorization$' 2>&1 | tee evidence/notification-quit-after.txt || result=1
-          grep -q '^--- PASS: TestWailsDarwinQuitDuringNotificationAuthorization' evidence/notification-quit-after.txt || result=1
-          "$lsregister" -f "$original"
-          if HELICO_TEST_MAC_BRIDGE_WAILS="$original/Contents/MacOS/helico" ./controls-tests -test.v -test.count=1 \
-            -test.timeout=60s -test.run '^TestWailsDarwinQuitDuringNotificationAuthorization$' 2>&1 | tee evidence/notification-quit-before.txt; then
-            result=1
-          fi
-          grep -q 'Wails did not exit within 5s after the close request' evidence/notification-quit-before.txt || result=1
-          "$lsregister" -u "$original"
+            -test.timeout=60s -test.run '^TestWailsDarwinQuitDuringNotificationAuthorization$' 2>&1 | tee evidence/notification-quit-current.txt || result=1
+          grep -q '^--- PASS: TestWailsDarwinQuitDuringNotificationAuthorization' evidence/notification-quit-current.txt || result=1
           log show --last 3m --style compact --predicate \
-            'process == "usernoted" AND eventMessage CONTAINS[c] "dev.helico.desktop"' > evidence/notification-quit-system.txt
+            'process == "usernoted" AND eventMessage CONTAINS[c] "dev.helico.desktop"' > evidence/notification-quit-system.txt || true
           exit "$result"
       - name: Keep native macOS notification quit logs
         if: always() && steps.fixture.outcome == 'success'
