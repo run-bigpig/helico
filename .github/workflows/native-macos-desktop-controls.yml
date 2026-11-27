@@ -85,10 +85,10 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP"
           tests="helico-macos-file-url-isolated-$ARCH.test"
-          tests_hashes=helico-macos-file-url-appkit-sha256.txt
+          tests_hashes=helico-macos-file-url-types-sha256.txt
           native_input=helico-macos-native-input-r10.swift
           native_input_hashes=helico-macos-native-drag-types-sha256.txt
-          native_drop=helico-macos-file-url-appkit.swift
+          native_drop=helico-macos-file-url-types.swift
           source=helico-native-desktop-controls-r7.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
             -p "$source" -p helico-native-desktop-controls-r7-sha256.txt \
@@ -106,13 +106,19 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          swiftc helico-macos-file-url-appkit.swift -o native-drop 2>&1 | tee evidence/drop-driver.txt
+          swiftc helico-macos-file-url-types.swift -o native-drop 2>&1 | tee evidence/drop-driver.txt
           app="$RUNNER_TEMP/installed/helico.app"
           /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
           export HELICO_TEST_MAC_BRIDGE_WAILS="$app/Contents/MacOS/helico"
           export HELICO_TEST_MAC_FILE_DROP="$RUNNER_TEMP/native-drop"
-          ./controls-tests -test.v -test.count=1 -test.timeout=3m \
-            -test.run '^TestWailsDarwinFileDrop$' 2>&1 | tee evidence/file-drop.txt
+          {
+            result=0
+            for format in public-file-url compatible-pasteboard; do
+              ./controls-tests -test.v -test.count=1 -test.timeout=90s \
+                -test.run "^TestWailsDarwinFileDrop\$/^$format\$" || result=1
+            done
+            exit "$result"
+          } 2>&1 | tee evidence/file-drop.txt
           grep -q 'PASS: TestWailsDarwinFileDrop/compatible-pasteboard' evidence/file-drop.txt
           grep -q 'PASS: TestWailsDarwinFileDrop/public-file-url' evidence/file-drop.txt
       - name: Keep native macOS file drop logs
