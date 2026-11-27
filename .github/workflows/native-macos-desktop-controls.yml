@@ -85,10 +85,10 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP"
           tests="helico-macos-file-url-isolated-$ARCH.test"
-          tests_hashes=helico-macos-file-url-fixture-sha256.txt
+          tests_hashes=helico-macos-file-url-appkit-sha256.txt
           native_input=helico-macos-native-input-r10.swift
           native_input_hashes=helico-macos-native-drag-types-sha256.txt
-          native_drop=helico-macos-file-url.swift
+          native_drop=helico-macos-file-url-appkit.swift
           source=helico-native-desktop-controls-r7.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
             -p "$source" -p helico-native-desktop-controls-r7-sha256.txt \
@@ -106,13 +106,25 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          swiftc helico-macos-file-url.swift -o native-drop 2>&1 | tee evidence/drop-driver.txt
-          export HELICO_TEST_MAC_BRIDGE_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
+          swiftc helico-macos-file-url-appkit.swift -o native-drop 2>&1 | tee evidence/drop-driver.txt
+          app="$RUNNER_TEMP/installed/helico.app"
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
+          export HELICO_TEST_MAC_BRIDGE_WAILS="$app/Contents/MacOS/helico"
           export HELICO_TEST_MAC_FILE_DROP="$RUNNER_TEMP/native-drop"
           ./controls-tests -test.v -test.count=1 -test.timeout=3m \
             -test.run '^TestWailsDarwinFileDrop$' 2>&1 | tee evidence/file-drop.txt
           grep -q 'PASS: TestWailsDarwinFileDrop/compatible-pasteboard' evidence/file-drop.txt
           grep -q 'PASS: TestWailsDarwinFileDrop/public-file-url' evidence/file-drop.txt
+      - name: Keep native macOS file drop logs
+        if: always() && steps.fixture.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-macos-file-drop-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/evidence/drop-driver.txt
+            ${{ runner.temp }}/evidence/file-drop.txt
+          if-no-files-found: error
+          retention-days: 14
       - name: Build the native keyboard and pasteboard driver
         id: native-input
         if: always() && steps.fixture.outcome == 'success'
@@ -191,8 +203,6 @@ jobs:
             ${{ runner.temp }}/evidence/browser-shortcuts.txt
             ${{ runner.temp }}/evidence/composer-clipboard.txt
             ${{ runner.temp }}/evidence/app-menu.txt
-            ${{ runner.temp }}/evidence/drop-driver.txt
-            ${{ runner.temp }}/evidence/file-drop.txt
             ${{ runner.temp }}/evidence/composer-ime.txt
           if-no-files-found: error
           retention-days: 14
