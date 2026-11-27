@@ -81,10 +81,10 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          tests="helico-macos-native-input-r5-$ARCH.test"
-          tests_hashes=helico-macos-native-input-r5-sha256.txt
-          native_input=helico-macos-native-input-r3.swift
-          native_input_hashes=helico-macos-native-input-r3-sha256.txt
+          tests="helico-macos-native-input-r7-$ARCH.test"
+          tests_hashes=helico-macos-native-input-r7-sha256.txt
+          native_input=helico-macos-native-input-r5.swift
+          native_input_hashes=helico-macos-native-input-r5-swift-sha256.txt
           source=helico-native-desktop-controls-r7.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
             -p "$source" -p helico-native-desktop-controls-r7-sha256.txt \
@@ -99,7 +99,19 @@ jobs:
       - name: Build the native keyboard and pasteboard driver
         id: native-input
         if: always() && steps.fixture.outcome == 'success'
-        run: swiftc "$RUNNER_TEMP/helico-macos-native-input-r3.swift" -o "$RUNNER_TEMP/native-input"
+        run: swiftc "$RUNNER_TEMP/helico-macos-native-input-r5.swift" -o "$RUNNER_TEMP/native-input"
+      - name: Open the exact conversation from a system notification
+        if: always() && steps.native-input.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          app="$RUNNER_TEMP/installed/helico.app"
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
+          export HELICO_TEST_MAC_BRIDGE_WAILS="$app/Contents/MacOS/helico"
+          export HELICO_TEST_MAC_KEYBOARD="$RUNNER_TEMP/native-input"
+          ./controls-tests -test.v -test.count=1 -test.timeout=90s \
+            -test.run '^TestWailsDarwinNotification$' 2>&1 | tee evidence/notification.txt
+          grep -q '^--- PASS: TestWailsDarwinNotification' evidence/notification.txt
       - name: Verify native Chromium shortcuts and live rebinding
         if: always() && steps.native-input.outcome == 'success'
         run: |
@@ -120,12 +132,13 @@ jobs:
           ./controls-tests -test.v -test.count=1 -test.timeout=90s \
             -test.run '^TestWailsDarwinComposerClipboard$' 2>&1 | tee evidence/composer-clipboard.txt
           grep -q '^--- PASS: TestWailsDarwinComposerClipboard' evidence/composer-clipboard.txt
-      - name: Keep native keyboard and pasteboard logs
+      - name: Keep native notification, keyboard and pasteboard logs
         if: always() && steps.native-input.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: native-macos-input-${{ matrix.arch }}
           path: |
+            ${{ runner.temp }}/evidence/notification.txt
             ${{ runner.temp }}/evidence/browser-shortcuts.txt
             ${{ runner.temp }}/evidence/composer-clipboard.txt
           if-no-files-found: error
