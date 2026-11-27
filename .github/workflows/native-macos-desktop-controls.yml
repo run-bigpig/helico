@@ -86,8 +86,8 @@ jobs:
           cd "$RUNNER_TEMP"
           tests="helico-macos-native-input-r12-$ARCH.test"
           tests_hashes=helico-macos-native-input-r12-sha256.txt
-          native_input=helico-macos-native-input-r9.swift
-          native_input_hashes=helico-macos-native-input-r12-swift-sha256.txt
+          native_input=helico-macos-native-input-r10.swift
+          native_input_hashes=helico-macos-notification-agents-sha256.txt
           native_drop=helico-macos-native-drop-r4.swift
           source=helico-native-desktop-controls-r7.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
@@ -105,7 +105,7 @@ jobs:
         if: always() && steps.fixture.outcome == 'success'
         run: |
           set -o pipefail
-          swiftc "$RUNNER_TEMP/helico-macos-native-input-r9.swift" -o "$RUNNER_TEMP/native-input" \
+          swiftc "$RUNNER_TEMP/helico-macos-native-input-r10.swift" -o "$RUNNER_TEMP/native-input" \
             2>&1 | tee "$RUNNER_TEMP/evidence/native-input-driver.txt"
       - name: Open the exact conversation from a system notification
         if: always() && steps.native-input.outcome == 'success'
