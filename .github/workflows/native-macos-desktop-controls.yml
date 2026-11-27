@@ -145,21 +145,22 @@ jobs:
           original="$RUNNER_TEMP/notification-baseline/helico.app"
           ditto "$app" "$original"
           gzip -dc "$old" > "$original/Contents/MacOS/helico"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier dev.helico.desktop.quitbaseline' "$original/Contents/Info.plist"
           codesign --force --sign - "$original"
           codesign --verify --deep --strict "$original"
           lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
-          "$lsregister" -f "$original"
           result=0
+          "$lsregister" -f "$app"
+          HELICO_TEST_MAC_BRIDGE_WAILS="$app/Contents/MacOS/helico" ./controls-tests -test.v -test.count=1 \
+            -test.timeout=60s -test.run '^TestWailsDarwinQuitDuringNotificationAuthorization$' 2>&1 | tee evidence/notification-quit-after.txt || result=1
+          grep -q '^--- PASS: TestWailsDarwinQuitDuringNotificationAuthorization' evidence/notification-quit-after.txt || result=1
+          "$lsregister" -f "$original"
           if HELICO_TEST_MAC_BRIDGE_WAILS="$original/Contents/MacOS/helico" ./controls-tests -test.v -test.count=1 \
             -test.timeout=60s -test.run '^TestWailsDarwinQuitDuringNotificationAuthorization$' 2>&1 | tee evidence/notification-quit-before.txt; then
             result=1
           fi
           grep -q 'Wails did not exit within 5s after the close request' evidence/notification-quit-before.txt || result=1
           "$lsregister" -u "$original"
-          "$lsregister" -f "$app"
-          HELICO_TEST_MAC_BRIDGE_WAILS="$app/Contents/MacOS/helico" ./controls-tests -test.v -test.count=1 \
-            -test.timeout=60s -test.run '^TestWailsDarwinQuitDuringNotificationAuthorization$' 2>&1 | tee evidence/notification-quit-after.txt || result=1
-          grep -q '^--- PASS: TestWailsDarwinQuitDuringNotificationAuthorization' evidence/notification-quit-after.txt || result=1
           log show --last 3m --style compact --predicate \
             'process == "usernoted" AND eventMessage CONTAINS[c] "dev.helico.desktop"' > evidence/notification-quit-system.txt
           exit "$result"
