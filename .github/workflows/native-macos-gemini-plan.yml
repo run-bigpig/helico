@@ -1,4 +1,4 @@
-name: Helico macOS Gemini plan approval
+name: Helico macOS Gemini and CodeBuddy workflows
 
 on:
   push:
@@ -43,6 +43,18 @@ jobs:
           programs/helico-core-tests -test.v -test.count=1 -test.timeout=5m \
             -test.run "^TestGemini($tests)$" 2>&1 | tee evidence/gemini-plan.txt
           test "$(grep -c '^--- PASS: TestGemini' evidence/gemini-plan.txt)" -eq 4
+      - name: Verify CodeBuddy discovery, task recovery and knowledge writes
+        if: always()
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          test -x programs/helico-core-tests
+          npm install --prefix codebuddy --no-save --ignore-scripts --no-audit --no-fund '@tencent-ai/codebuddy-code@2.186.0'
+          export HELICO_TEST_CODEBUDDY_BINARY="$RUNNER_TEMP/codebuddy/node_modules/.bin/codebuddy"
+          export HELICO_TEST_CODEBUDDY_KNOWLEDGE=1
+          programs/helico-core-tests -test.v -test.count=1 -test.timeout=5m \
+            -test.run '^TestCodeBuddyNative(CatalogAndEnvironment|SessionResume)$' 2>&1 | tee evidence/codebuddy.txt
+          test "$(grep -c '^--- PASS: TestCodeBuddyNative' evidence/codebuddy.txt)" -eq 2
       - name: Keep native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
