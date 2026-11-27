@@ -81,11 +81,11 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          tests="helico-native-controls-r2-$ARCH.test"
-          source=helico-native-desktop-controls-r2.tar.gz
+          tests="helico-native-controls-r3-$ARCH.test"
+          source=helico-native-desktop-controls-r3.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
-            -p "$source" -p "$tests.gz" -p helico-native-controls-r2-sha256.txt
-          awk -v source="$source" -v tests="$tests.gz" '$2 == source || $2 == tests' helico-native-controls-r2-sha256.txt | shasum -a 256 -c -
+            -p "$source" -p "$tests.gz" -p helico-native-controls-r3-sha256.txt
+          awk -v source="$source" -v tests="$tests.gz" '$2 == source || $2 == tests' helico-native-controls-r3-sha256.txt | shasum -a 256 -c -
           mkdir controls-fixture
           tar -xzf "$source" -C controls-fixture
           gzip -dc "$tests.gz" > controls-tests
@@ -136,6 +136,15 @@ jobs:
           HELICO_TEST_PLUGIN_GITHUB_RELEASES=1 ./controls-tests -test.v -test.count=1 -test.timeout=2m \
             -test.run '^TestCoreListsPublishedHelicoPluginPackages$' 2>&1 | tee evidence/plugin-release.txt
           grep -q '^--- PASS: TestCoreListsPublishedHelicoPluginPackages' evidence/plugin-release.txt
+      - name: Verify Go channel recovery and isolated MCP tools
+        if: always() && steps.fixture.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          export HELICO_TEST_MCP_BINARY="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico-mcp"
+          ./controls-tests -test.v -test.count=1 -test.timeout=3m \
+            -test.run '^TestChannel(CoreIPCAndRestart|Locked(Codex|Claude)AndProjectTools)$' 2>&1 | tee evidence/channels.txt
+          test "$(grep -c '^--- PASS: TestChannel' evidence/channels.txt)" -eq 3
       - name: Keep native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
