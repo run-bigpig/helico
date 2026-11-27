@@ -1,0 +1,78 @@
+name: Helico macOS native Claude and Antigravity
+
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-macos-agent-cli.yml]
+
+permissions:
+  contents: write # The native Go inputs are held in a draft release.
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+            claude: darwin-x64
+            claude_sha256: 3439427bfce962fddcf557c5a058ca914fa63e06fee894f8e12a3f10e04d1871
+          - runner: macos-15
+            arch: arm64
+            claude: darwin-arm64
+            claude_sha256: 1f04c69e1c24e4d0a716a863af0aad8fc64d49a499334c29701f073700276b99
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Fetch native Go inputs
+        id: fixtures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          mkdir programs evidence
+          input="helico-macos-approval-$ARCH.tar.gz"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" -p "$input" -p helico-macos-approval-sha256.txt -p verify-claude-macos-2.1.301.mjs -p verify-claude-macos-2.1.301-sha256.txt
+          awk -v f="$input" '$2 == f' helico-macos-approval-sha256.txt | shasum -a 256 -c -
+          shasum -a 256 -c verify-claude-macos-2.1.301-sha256.txt
+          tar -xzf "$input" -C programs
+      - name: Exercise native Claude Code against the local provider
+        if: steps.fixtures.outcome == 'success'
+        env:
+          CLAUDE_PLATFORM: ${{ matrix.claude }}
+          CLAUDE_SHA256: ${{ matrix.claude_sha256 }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          mkdir claude-bin
+          url="https://downloads.claude.ai/claude-code-releases/2.1.301/$CLAUDE_PLATFORM/claude"
+          curl --fail --show-error --silent --location --retry 3 --max-time 180 "$url" -o claude-bin/claude
+          printf '%s  %s\n' "$CLAUDE_SHA256" claude-bin/claude | shasum -a 256 -c -
+          chmod 755 claude-bin/claude
+          status=0
+          if ! node verify-claude-macos-2.1.301.mjs claude-bin/claude programs 2>&1 | tee evidence/claude-restart.txt; then status=1; fi
+          if ! node verify-claude-macos-2.1.301.mjs claude-bin/claude programs --background-stop 2>&1 | tee evidence/claude-background.txt; then status=1; fi
+          exit "$status"
+      - name: Exercise Antigravity installation through the Go daemon
+        if: always() && steps.fixtures.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          export HELICO_TEST_ANTIGRAVITY_DOWNLOAD=1
+          programs/helico-core-tests -test.v -test.count=1 -test.timeout=10m -test.run '^TestAntigravityNativeInstallFromTerminal$' 2>&1 | tee evidence/antigravity-install.txt
+          grep -q '^--- PASS: TestAntigravityNativeInstallFromTerminal' evidence/antigravity-install.txt
+      - name: Keep native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-macos-agent-cli-${{ matrix.arch }}
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: ignore
+          retention-days: 14
