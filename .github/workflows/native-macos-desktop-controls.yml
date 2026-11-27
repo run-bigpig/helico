@@ -81,12 +81,12 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          tests="helico-native-controls-r3-$ARCH.test"
+          tests="helico-native-controls-r8-$ARCH.test"
           source=helico-native-desktop-controls-r7.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
-            -p "$source" -p helico-native-desktop-controls-r7-sha256.txt -p "$tests.gz" -p helico-native-controls-r3-sha256.txt
+            -p "$source" -p helico-native-desktop-controls-r7-sha256.txt -p "$tests.gz" -p helico-native-controls-r8-sha256.txt
           shasum -a 256 -c helico-native-desktop-controls-r7-sha256.txt
-          awk -v tests="$tests.gz" '$2 == tests' helico-native-controls-r3-sha256.txt | shasum -a 256 -c -
+          awk -v tests="$tests.gz" '$2 == tests' helico-native-controls-r8-sha256.txt | shasum -a 256 -c -
           mkdir controls-fixture
           tar -xzf "$source" -C controls-fixture
           gzip -dc "$tests.gz" > controls-tests
@@ -120,6 +120,15 @@ jobs:
           ./controls-tests -test.v -test.count=1 -test.timeout=2m \
             -test.run '^TestWailsDarwinDesktopBridge$' 2>&1 | tee evidence/file-backend.txt
           grep -q '^--- PASS: TestWailsDarwinDesktopBridge' evidence/file-backend.txt
+      - name: Verify Chromium bounds, focus, occlusion and window handoff
+        if: always() && steps.fixture.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          export HELICO_TEST_BROWSER_HANDOFF_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
+          ./controls-tests -test.v -test.count=1 -test.timeout=3m \
+            -test.run '^TestWailsBrowserHandoff$' 2>&1 | tee evidence/browser-presentation.txt
+          grep -q '^--- PASS: TestWailsBrowserHandoff' evidence/browser-presentation.txt
       - name: Skip and restore an offered update
         if: always() && steps.fixture.outcome == 'success'
         run: |
