@@ -19,7 +19,7 @@ jobs:
           - runner: macos-15
             arch: arm64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 18
+    timeout-minutes: 25
     env:
       ARCH: ${{ matrix.arch }}
     steps:
@@ -82,10 +82,10 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP"
           tests="helico-native-controls-r3-$ARCH.test"
-          source=helico-native-desktop-controls-r5.tar.gz
+          source=helico-native-desktop-controls-r6.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
-            -p "$source" -p helico-native-desktop-controls-r5-sha256.txt -p "$tests.gz" -p helico-native-controls-r3-sha256.txt
-          shasum -a 256 -c helico-native-desktop-controls-r5-sha256.txt
+            -p "$source" -p helico-native-desktop-controls-r6-sha256.txt -p "$tests.gz" -p helico-native-controls-r3-sha256.txt
+          shasum -a 256 -c helico-native-desktop-controls-r6-sha256.txt
           awk -v tests="$tests.gz" '$2 == tests' helico-native-controls-r3-sha256.txt | shasum -a 256 -c -
           mkdir controls-fixture
           tar -xzf "$source" -C controls-fixture
@@ -146,6 +146,18 @@ jobs:
           ./controls-tests -test.v -test.count=1 -test.timeout=3m \
             -test.run '^TestChannel(CoreIPCAndRestart|Locked(Codex|Claude)AndProjectTools)$' 2>&1 | tee evidence/channels.txt
           test "$(grep -c '^--- PASS: TestChannel' evidence/channels.txt)" -eq 3
+      - name: Verify native ZCode and model image settings
+        if: always() && steps.fixture.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          npm install --prefix zcode --no-save --ignore-scripts --no-audit --no-fund 'zcode-app-cli@3.16.2-38'
+          app="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
+          export HELICO_TEST_ZCODE_DIR="$RUNNER_TEMP/zcode/node_modules/.bin"
+          export HELICO_TEST_ZCODE_WAILS="$app" HELICO_TEST_ZCODE_PROVIDER_WAILS="$app"
+          ./controls-tests -test.v -test.count=1 -test.timeout=10m \
+            -test.run '^TestZCode(NativeCatalog|NativeSessionResume|ConfiguredImageProvider)$' 2>&1 | tee evidence/zcode.txt
+          test "$(grep -c '^--- PASS: TestZCode' evidence/zcode.txt)" -eq 3
       - name: Keep native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
