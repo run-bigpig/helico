@@ -92,7 +92,7 @@ jobs:
           source=helico-native-desktop-controls-r7.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
             -p "$source" -p helico-native-desktop-controls-r7-sha256.txt \
-            -p "$tests.gz" -p "$native_input" -p "$native_drop" -p "$tests_hashes" -p "$native_input_hashes"
+            -p "$tests.gz" -p "$native_input" -p "$native_drop" -p "$native_input_hashes"
           shasum -a 256 -c helico-native-desktop-controls-r7-sha256.txt
           awk -v tests="$tests.gz" '$2 == tests' "$tests_hashes" | shasum -a 256 -c -
           awk -v f="$native_drop" '$2 == f' "$tests_hashes" | shasum -a 256 -c -
