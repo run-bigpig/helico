@@ -39,16 +39,16 @@ jobs:
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
             -p "$core" -p helico-native-core-workflows-sha256.txt -p "$plugins" -p native-plugins-sha256.txt \
             -p "$tests.gz" -p helico-mac-bridge-sha256.txt \
-            -p helico-macos-core-fixture.tar.gz -p helico-macos-core-fixture-sha256.txt
+            -p helico-macos-native-core-fixtures.tar.gz -p helico-macos-native-core-fixtures-sha256.txt
           awk -v f="$core" '$2 == f' helico-native-core-workflows-sha256.txt | shasum -a 256 -c -
           awk -v f="$plugins" '$2 == f' native-plugins-sha256.txt | shasum -a 256 -c -
           awk -v f="$tests.gz" '$2 == f' helico-mac-bridge-sha256.txt | shasum -a 256 -c -
-          shasum -a 256 -c helico-macos-core-fixture-sha256.txt
+          shasum -a 256 -c helico-macos-native-core-fixtures-sha256.txt
           mkdir services plugin-fixture
           tar -xzf "$core" -C services
           tar -xzf "$plugins" -C plugin-fixture
-          tar -xzf helico-macos-core-fixture.tar.gz -C services verify-history-todos.mjs verify-codex-restart.mjs
-          tar -xzf helico-macos-core-fixture.tar.gz -C plugin-fixture/testdata/plugins verify-core.mjs
+          tar -xzf helico-macos-native-core-fixtures.tar.gz -C services verify-history-todos.mjs verify-codex-restart.mjs
+          tar -xzf helico-macos-native-core-fixtures.tar.gz -C plugin-fixture/testdata/plugins verify-core.mjs
           gzip -dc "$tests.gz" > "$tests"
           chmod 755 "$tests"
       - name: Exercise SQLite history and the built-in Go MCP
