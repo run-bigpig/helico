@@ -81,13 +81,15 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          tests="helico-macos-provider-$ARCH.test"
-          tests_hashes=helico-macos-provider-sha256.txt
+          tests="helico-macos-desktop-shortcuts-$ARCH.test"
+          tests_hashes=helico-macos-desktop-shortcuts-sha256.txt
+          native_input=helico-macos-native-input.swift
           source=helico-native-desktop-controls-r7.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
-            -p "$source" -p helico-native-desktop-controls-r7-sha256.txt -p "$tests.gz" -p "$tests_hashes"
+            -p "$source" -p helico-native-desktop-controls-r7-sha256.txt \
+            -p "$tests.gz" -p "$native_input" -p "$tests_hashes"
           shasum -a 256 -c helico-native-desktop-controls-r7-sha256.txt
-          awk -v tests="$tests.gz" '$2 == tests' "$tests_hashes" | shasum -a 256 -c -
+          awk -v tests="$tests.gz" -v input="$native_input" '$2 == tests || $2 == input' "$tests_hashes" | shasum -a 256 -c -
           mkdir controls-fixture
           tar -xzf "$source" -C controls-fixture
           gzip -dc "$tests.gz" > controls-tests
@@ -101,6 +103,17 @@ jobs:
           ./controls-tests -test.v -test.count=1 -test.timeout=3m \
             -test.run '^TestWailsBrowserHandoff$' 2>&1 | tee evidence/browser-presentation.txt
           grep -q '^--- PASS: TestWailsBrowserHandoff' evidence/browser-presentation.txt
+      - name: Verify native Chromium shortcuts and live rebinding
+        if: always() && steps.fixture.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          swiftc helico-macos-native-input.swift -o native-input 2>&1 | tee evidence/native-input-build.txt
+          export HELICO_TEST_BROWSER_HANDOFF_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
+          export HELICO_TEST_MAC_KEYBOARD="$RUNNER_TEMP/native-input"
+          ./controls-tests -test.v -test.count=1 -test.timeout=2m \
+            -test.run '^TestWailsDarwinBrowserShortcuts$' 2>&1 | tee evidence/browser-shortcuts.txt
+          grep -q '^--- PASS: TestWailsDarwinBrowserShortcuts' evidence/browser-shortcuts.txt
       - name: Restore, switch and dock the detached Git window
         if: always() && steps.fixture.outcome == 'success'
         run: |
