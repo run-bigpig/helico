@@ -1,0 +1,132 @@
+name: Helico macOS native history and source investigations
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-macos-core-workflows.yml]
+permissions:
+  contents: write
+jobs:
+  native:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+            codex_arch: x86_64
+            codex_sha256: 10a0972a1535206305e7b0ce2b096ddb4253542b4ac1599265b2d0c0898d278a
+          - runner: macos-15
+            arch: arm64
+            codex_arch: aarch64
+            codex_sha256: bd121f8abd6b28b3fc476da04a348e25a83e89eda19d39107f68f8e966053092
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Verify native Go inputs
+        id: inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          core="helico-native-core-workflows-$ARCH.tar.gz"
+          plugins="helico-native-plugins-$ARCH.tar.gz"
+          tests="helico-mac-bridge-$ARCH.test"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+            -p "$core" -p helico-native-core-workflows-sha256.txt -p "$plugins" -p native-plugins-sha256.txt \
+            -p "$tests.gz" -p helico-mac-bridge-sha256.txt
+          awk -v f="$core" '$2 == f' helico-native-core-workflows-sha256.txt | shasum -a 256 -c -
+          awk -v f="$plugins" '$2 == f' native-plugins-sha256.txt | shasum -a 256 -c -
+          awk -v f="$tests.gz" '$2 == f' helico-mac-bridge-sha256.txt | shasum -a 256 -c -
+          mkdir services plugin-fixture
+          tar -xzf "$core" -C services
+          tar -xzf "$plugins" -C plugin-fixture
+          gzip -dc "$tests.gz" > "$tests"
+          chmod 755 "$tests"
+      - name: Exercise SQLite history and the built-in Go MCP
+        if: always() && steps.inputs.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/services"
+          node verify-history-todos.mjs bin 2>&1 | tee "$RUNNER_TEMP/history-todos.txt"
+      - name: Verify Go quotas, attachment storage and conversation branches
+        if: always() && steps.inputs.outcome == 'success'
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          tests='QuotaForecastRetainsSamplesAndFiltersTrackerAnnouncements|QuotaAutomationRunsThroughGoDaemonAndScheduler|AttachmentStoragePreservesReferences|ForkRetainsOnlyTheSelectedTurnAndPersistsIndependentHistory|WireLogWithGoDaemonAndWebSocket|LegacyScheduleRowsKeepLimitAndRoutineHistory|PullRequestsReadOldLinksAndListBaseBranches|ClaudePromptSuggestionsThroughDaemon'
+          "./helico-mac-bridge-$ARCH.test" -test.v -test.count=1 -test.timeout=6m -test.run "^Test($tests)$" 2>&1 | tee core-domains.txt
+          test "$(grep -c '^--- PASS: Test' core-domains.txt)" -eq 8
+      - name: Verify Codex and the released Jira Go plugin
+        id: external
+        if: always() && steps.inputs.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+          CODEX_ARCH: ${{ matrix.codex_arch }}
+          CODEX_SHA256: ${{ matrix.codex_sha256 }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          codex="codex-$CODEX_ARCH-apple-darwin"
+          gh release download rust-v0.172.0 -R openai/codex -p "$codex.tar.gz"
+          printf '%s  %s\n' "$CODEX_SHA256" "$codex.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$codex.tar.gz"
+          mkdir tools
+          install -m 755 "$codex" tools/codex
+          tools/codex --version | tee codex-version.txt
+          jira="helico.jira-1.4.2-darwin-$ARCH.zip"
+          digest=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/jira-v1.4.2" |
+            jq -er --arg name "$jira" '.assets[] | select(.name == $name) | .digest')
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          gh release download jira-v1.4.2 -R "$GITHUB_REPOSITORY" -p "$jira" -D plugin-fixture
+          printf '%s  %s\n' "${digest#sha256:}" "plugin-fixture/$jira" | shasum -a 256 -c -
+      - name: Exercise native Codex restart and background interruption
+        if: always() && steps.external.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/services"
+          set +e
+          node verify-codex-restart.mjs ../tools/codex bin 2>&1 | tee "$RUNNER_TEMP/codex-restart.txt"
+          restart=$?
+          node verify-codex-restart.mjs ../tools/codex bin --background-stop 2>&1 | tee "$RUNNER_TEMP/codex-background.txt"
+          background=$?
+          test "$restart" = 0 && test "$background" = 0
+      - name: Exercise manual and scheduled Jira investigations
+        if: always() && steps.external.outcome == 'success'
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/plugin-fixture"
+          core=../services/bin/helico-core
+          daemon=../services/bin/helico-daemon
+          codex=../tools/codex
+          arguments=(--jira-package "helico.jira-1.4.2-darwin-$ARCH.zip" --source-updates --source-delivery "$codex" "$daemon")
+          status=0
+          if ! node testdata/plugins/verify-core.mjs "$core" bin/page-fixture "${arguments[@]}" 2>&1 | tee "$RUNNER_TEMP/source-delivery.txt"; then status=1; fi
+          if ! node testdata/plugins/verify-core.mjs "$core" bin/page-fixture "${arguments[@]}" --source-investigation 2>&1 | tee "$RUNNER_TEMP/source-investigation.txt"; then status=1; fi
+          if ! node testdata/plugins/verify-core.mjs "$core" bin/page-fixture "${arguments[@]}" --auto-investigation 2>&1 | tee "$RUNNER_TEMP/source-auto.txt"; then status=1; fi
+          exit "$status"
+      - name: Retain native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-core-workflows-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/history-todos.txt
+            ${{ runner.temp }}/core-domains.txt
+            ${{ runner.temp }}/codex-version.txt
+            ${{ runner.temp }}/codex-restart.txt
+            ${{ runner.temp }}/codex-background.txt
+            ${{ runner.temp }}/source-delivery.txt
+            ${{ runner.temp }}/source-investigation.txt
+            ${{ runner.temp }}/source-auto.txt
+          if-no-files-found: ignore
+          retention-days: 14
