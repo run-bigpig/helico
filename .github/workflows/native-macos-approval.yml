@@ -126,22 +126,35 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          fixture="helico-macos-browser-pets-$ARCH.test"
+          fixture="helico-macos-ui-core-r3-$ARCH.test"
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
-            -p "$fixture.gz" -p helico-macos-browser-pets-sha256.txt
-          awk -v f="$fixture.gz" '$2 == f' helico-macos-browser-pets-sha256.txt | shasum -a 256 -c -
+            -p "$fixture.gz" -p helico-macos-ui-core-r3-sha256.txt
+          awk -v f="$fixture.gz" '$2 == f' helico-macos-ui-core-r3-sha256.txt | shasum -a 256 -c -
           gzip -dc "$fixture.gz" > "$fixture"
           chmod 755 "$fixture"
           app="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
           export HELICO_TEST_BROWSER_HOMEPAGE_WAILS="$app" HELICO_TEST_PET_WAILS="$app"
           status=0
           if ! "./$fixture" -test.v -test.count=1 -test.timeout=3m -test.run '^TestWailsBrowserHomepage$' \
-            2>&1 | tee evidence/browser-homepage.txt; then status=1; fi
+            2>&1 | tee evidence/browser-homepage.txt; then
+            status=1
+            HELICO_TEST_BROWSER_HANDOFF_WAILS="$app" "./$fixture" -test.v -test.count=1 -test.timeout=3m \
+              -test.run '^TestWailsBrowserHandoff$' 2>&1 | tee evidence/browser-navigation-control.txt || true
+          fi
           if ! "./$fixture" -test.v -test.count=1 -test.timeout=4m -test.run '^TestWailsPetCatalogAndRestart$' \
             2>&1 | tee evidence/pet-library.txt; then status=1; fi
           if ! grep -q '^--- PASS: TestWailsBrowserHomepage' evidence/browser-homepage.txt; then status=1; fi
           if ! grep -q '^--- PASS: TestWailsPetCatalogAndRestart' evidence/pet-library.txt; then status=1; fi
           exit "$status"
+      - name: Verify task branches, routine listing, and idle Agent release
+        if: always() && steps.package.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          tests='SchedulesUseNativeDaemonAndRecover|TaskCodexConversationSurvivesCoreRestart'
+          "./helico-macos-ui-core-r3-$ARCH.test" -test.v -test.count=1 -test.timeout=4m -test.run "^Test($tests)$" \
+            2>&1 | tee evidence/core-workspaces.txt
+          test "$(grep -c '^--- PASS: Test' evidence/core-workspaces.txt)" -eq 2
       - name: Keep native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
