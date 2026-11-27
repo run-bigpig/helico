@@ -43,10 +43,15 @@ jobs:
           cd "$RUNNER_TEMP"
           mkdir programs evidence
           input="helico-macos-approval-$ARCH.tar.gz"
-          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" -p "$input" -p helico-macos-approval-sha256.txt -p verify-claude-macos-2.1.301.mjs -p verify-claude-macos-2.1.301-sha256.txt
+          dsh="helico-macos-dsh-$ARCH.test"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+            -p "$input" -p helico-macos-approval-sha256.txt \
+            -p "$dsh.gz" -p verify-claude-macos-handoff.mjs -p helico-macos-agent-followup-sha256.txt
           awk -v f="$input" '$2 == f' helico-macos-approval-sha256.txt | shasum -a 256 -c -
-          shasum -a 256 -c verify-claude-macos-2.1.301-sha256.txt
+          awk -v f="$dsh.gz" '$2 == f || $2 == "verify-claude-macos-handoff.mjs"' helico-macos-agent-followup-sha256.txt | shasum -a 256 -c -
           tar -xzf "$input" -C programs
+          gzip -dc "$dsh.gz" > "programs/helico-dsh-tests"
+          chmod 755 "programs/helico-dsh-tests"
       - name: Exercise native Claude Code against the local provider
         if: steps.fixtures.outcome == 'success'
         env:
@@ -69,8 +74,8 @@ jobs:
           tar -xzf "$codex.tar.gz"
           install -m 755 "$codex" codex-bin/codex
           status=0
-          if ! node verify-claude-macos-2.1.301.mjs claude-bin/claude programs codex-bin/codex --missing-sessions --model-providers 2>&1 | tee evidence/claude-handoff.txt; then status=1; fi
-          if ! node verify-claude-macos-2.1.301.mjs claude-bin/claude programs --background-stop 2>&1 | tee evidence/claude-background.txt; then status=1; fi
+          if ! node verify-claude-macos-handoff.mjs claude-bin/claude programs codex-bin/codex --missing-sessions --model-providers 2>&1 | tee evidence/claude-handoff.txt; then status=1; fi
+          if ! node verify-claude-macos-handoff.mjs claude-bin/claude programs --background-stop 2>&1 | tee evidence/claude-background.txt; then status=1; fi
           exit "$status"
       - name: Exercise Antigravity installation through the Go daemon
         if: always() && steps.fixtures.outcome == 'success'
@@ -91,7 +96,7 @@ jobs:
           npm install --prefix dsh --no-save --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.2-rc.3
           export HELICO_TEST_DSH_BINARY="$RUNNER_TEMP/dsh/node_modules/.bin/dsh"
           tests='DSHNativeCatalogKeepsProbeSessionsPrivate|DSHNativeReadOnlySession'
-          programs/helico-core-tests -test.v -test.count=1 -test.timeout=6m -test.run "^Test($tests)$" 2>&1 | tee evidence/dsh.txt
+          programs/helico-dsh-tests -test.v -test.count=1 -test.timeout=6m -test.run "^Test($tests)$" 2>&1 | tee evidence/dsh.txt
           test "$(grep -c '^--- PASS: TestDSH' evidence/dsh.txt)" -eq 2
       - name: Keep native evidence
         if: always()
