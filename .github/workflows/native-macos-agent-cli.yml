@@ -52,8 +52,22 @@ jobs:
           tar -xzf "$input" -C programs
           gzip -dc "$dsh.gz" > "programs/helico-dsh-tests"
           chmod 755 "programs/helico-dsh-tests"
-      - name: Exercise native Claude Code against the local provider
+      - name: Exercise the native OpenCode ACP session and fork
         if: steps.fixtures.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          platform_arch="$ARCH"
+          if test "$ARCH" = amd64; then platform_arch=x64; fi
+          package="@opencode/cli-darwin-$platform_arch"
+          npm install --prefix opencode --no-save --ignore-scripts --no-audit --no-fund "$package@2.1.1"
+          export HELICO_TEST_OPENCODE_BINARY="$RUNNER_TEMP/opencode/node_modules/$package/bin/opencode"
+          test "$("$HELICO_TEST_OPENCODE_BINARY" --version)" = 2.1.1
+          programs/helico-core-tests -test.v -test.count=1 -test.timeout=10m \
+            -test.run '^TestOpenCodeNative(Session|ConversationFork)$' 2>&1 | tee evidence/opencode.txt
+          test "$(grep -c '^--- PASS: TestOpenCodeNative' evidence/opencode.txt)" -eq 2
+      - name: Exercise native Claude Code against the local provider
+        if: always() && steps.fixtures.outcome == 'success'
         env:
           CLAUDE_PLATFORM: ${{ matrix.claude }}
           CLAUDE_SHA256: ${{ matrix.claude_sha256 }}
