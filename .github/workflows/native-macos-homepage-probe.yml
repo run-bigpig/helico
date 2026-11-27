@@ -1,4 +1,4 @@
-name: Helico macOS initial browser navigation probe
+name: Helico macOS browser profile and navigation probe
 
 on:
   push:
@@ -40,9 +40,8 @@ jobs:
           repack="repack-$ARCH"
           assets=("$base" desktop-sha256.txt "$packager" native-test-sha256.txt "$repack" repack-sha256.txt remote-sha256.txt
             "$input" helico-macos-approval-sha256.txt "$script" helico-macos-approval-fixture-r2-sha256.txt)
-          candidate="helico-mac-homepage-probe-core-$ARCH.gz"
           fixture="helico-macos-ui-core-r3-$ARCH.test.gz"
-          assets+=("$candidate" "$fixture" helico-mac-homepage-probe-sha256.txt helico-macos-ui-core-r3-sha256.txt)
+          assets+=("$fixture" helico-macos-ui-core-r3-sha256.txt)
           patterns=()
           for asset in "${assets[@]}"; do patterns+=(-p "$asset"); done
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" "${patterns[@]}"
@@ -59,9 +58,6 @@ jobs:
           for program in helico helico-core helico-daemon helico-helper helico-channel-gateway helico-mcp; do
             install -m 755 "fresh/$program" "$payload/$program"
           done
-          awk -v f="$candidate" '$2 == f' helico-mac-homepage-probe-sha256.txt | shasum -a 256 -c -
-          gzip -dc "$candidate" > "$payload/helico-core"
-          chmod 755 "$payload/helico-core"
           awk -v f="$fixture" '$2 == f' helico-macos-ui-core-r3-sha256.txt | shasum -a 256 -c -
           gzip -dc "$fixture" > homepage-tests
           chmod 755 homepage-tests
@@ -87,14 +83,45 @@ jobs:
           trap 'hdiutil detach "$RUNNER_TEMP/mount" || hdiutil detach -force "$RUNNER_TEMP/mount"' EXIT
           ditto mount/helico.app installed/helico.app
           codesign --verify --deep --strict installed/helico.app
-      - name: Verify the initial navigation on the installed Mac app
+      - name: Compare navigation under the runner and isolated home
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          export HELICO_TEST_BROWSER_HOMEPAGE_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
-          ./homepage-tests -test.v -test.count=1 -test.timeout=3m -test.run '^TestWailsBrowserHomepage$' \
-            2>&1 | tee evidence/homepage.txt
-          grep -q '^--- PASS: TestWailsBrowserHomepage' evidence/homepage.txt
+          export HELICO_MACOS_TEST_APP="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
+          mkdir isolated-home
+          status=0
+          if ! HOME="$RUNNER_TEMP/isolated-home" HELICO_TEST_BROWSER_HANDOFF_WAILS="$HELICO_MACOS_TEST_APP" \
+            ./homepage-tests -test.v -test.count=1 -test.timeout=2m -test.run '^TestWailsBrowserHandoff$' \
+            2>&1 | tee evidence/isolated-home-navigation.txt; then status=1; fi
+          export HELICO_RUNNER_HOME="$HOME"
+          profile='Library/Containers/com.apple.Safari/Data/Library/Preferences/com.apple.Safari.plist'
+          link="$HOME/$profile"
+          if [[ -e "$link" || -L "$link" ]]; then
+            printf '%s\n' 'The runner already has a Safari preferences file; left it intact.' | tee evidence/runner-home-homepage.txt
+            exit 1
+          fi
+          cleanup() {
+            local marker="$RUNNER_TEMP/safari-profile-link-source"
+            if [[ -L "$link" && -f "$marker" && "$(readlink "$link")" == "$(cat "$marker")" ]]; then rm "$link"; fi
+          }
+          trap cleanup EXIT
+          cat > app-with-runner-home <<'SH'
+          #!/bin/bash
+          set -euo pipefail
+          profile='Library/Containers/com.apple.Safari/Data/Library/Preferences/com.apple.Safari.plist'
+          link="$HELICO_RUNNER_HOME/$profile"
+          mkdir -p "${link%/*}"
+          test -f "$HOME/$profile"
+          ln -s "$HOME/$profile" "$link"
+          printf '%s\n' "$HOME/$profile" > "$RUNNER_TEMP/safari-profile-link-source"
+          export HOME="$HELICO_RUNNER_HOME"
+          exec "$HELICO_MACOS_TEST_APP"
+          SH
+          chmod 755 app-with-runner-home
+          if ! HELICO_TEST_BROWSER_HOMEPAGE_WAILS="$RUNNER_TEMP/app-with-runner-home" \
+            ./homepage-tests -test.v -test.count=1 -test.timeout=3m -test.run '^TestWailsBrowserHomepage$' \
+            2>&1 | tee evidence/runner-home-homepage.txt; then status=1; fi
+          exit "$status"
       - name: Keep native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
