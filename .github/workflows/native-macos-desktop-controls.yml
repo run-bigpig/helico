@@ -81,10 +81,8 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          test_revision=r10
-          if test "$ARCH" = arm64; then test_revision=r11; fi
-          tests="helico-native-controls-$test_revision-$ARCH.test"
-          tests_hashes="helico-native-controls-$test_revision-sha256.txt"
+          tests="helico-macos-provider-$ARCH.test"
+          tests_hashes=helico-macos-provider-sha256.txt
           source=helico-native-desktop-controls-r7.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
             -p "$source" -p helico-native-desktop-controls-r7-sha256.txt -p "$tests.gz" -p "$tests_hashes"
@@ -94,6 +92,15 @@ jobs:
           tar -xzf "$source" -C controls-fixture
           gzip -dc "$tests.gz" > controls-tests
           chmod 755 controls-tests
+      - name: Verify Chromium bounds, focus, occlusion and window handoff
+        if: always() && steps.fixture.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          export HELICO_TEST_BROWSER_HANDOFF_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
+          ./controls-tests -test.v -test.count=1 -test.timeout=3m \
+            -test.run '^TestWailsBrowserHandoff$' 2>&1 | tee evidence/browser-presentation.txt
+          grep -q '^--- PASS: TestWailsBrowserHandoff' evidence/browser-presentation.txt
       - name: Restore, switch and dock the detached Git window
         if: always() && steps.fixture.outcome == 'success'
         run: |
@@ -123,15 +130,6 @@ jobs:
           ./controls-tests -test.v -test.count=1 -test.timeout=2m \
             -test.run '^TestWailsDarwinDesktopBridge$' 2>&1 | tee evidence/file-backend.txt
           grep -q '^--- PASS: TestWailsDarwinDesktopBridge' evidence/file-backend.txt
-      - name: Verify Chromium bounds, focus, occlusion and window handoff
-        if: always() && steps.fixture.outcome == 'success'
-        run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP"
-          export HELICO_TEST_BROWSER_HANDOFF_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
-          ./controls-tests -test.v -test.count=1 -test.timeout=3m \
-            -test.run '^TestWailsBrowserHandoff$' 2>&1 | tee evidence/browser-presentation.txt
-          grep -q '^--- PASS: TestWailsBrowserHandoff' evidence/browser-presentation.txt
       - name: Skip and restore an offered update
         if: always() && steps.fixture.outcome == 'success'
         run: |
