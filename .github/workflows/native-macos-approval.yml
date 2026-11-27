@@ -40,13 +40,13 @@ jobs:
           input="helico-macos-approval-$ARCH.tar.gz"
           packager="retry-packager-$ARCH"
           repack="repack-$ARCH"
-          assets=("$base" desktop-sha256.txt "$packager" "$repack" repack-sha256.txt remote-sha256.txt "$input" helico-macos-approval-sha256.txt)
+          assets=("$base" desktop-sha256.txt "$packager" native-test-sha256.txt "$repack" repack-sha256.txt remote-sha256.txt "$input" helico-macos-approval-sha256.txt)
           patterns=()
           for asset in "${assets[@]}"; do patterns+=(-p "$asset"); done
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" "${patterns[@]}"
           awk -v f="$base" '$2 == f' desktop-sha256.txt | shasum -a 256 -c -
           awk -v f="$repack" '$2 == f' repack-sha256.txt | shasum -a 256 -c -
-          awk -v f="$packager" '$2 == f' desktop-sha256.txt | shasum -a 256 -c -
+          awk -v f="$packager" '$2 == f' native-test-sha256.txt | shasum -a 256 -c -
           awk -v f="$input" '$2 == f' helico-macos-approval-sha256.txt | shasum -a 256 -c -
           tar -xzf "$base"
           mkdir fresh
