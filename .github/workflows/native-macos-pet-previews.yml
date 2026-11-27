@@ -1,0 +1,59 @@
+name: Helico macOS pet development previews
+
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-macos-pet-previews.yml]
+
+permissions:
+  contents: write # Development workspace fixture is held in a draft release.
+
+jobs:
+  previews:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Render the development previews in native Chrome
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          fixture=helico-macos-pet-preview-workspace.tar.gz
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+            -p "$fixture" -p helico-macos-pet-preview-sha256.txt
+          shasum -a 256 -c helico-macos-pet-preview-sha256.txt
+          mkdir preview evidence
+          tar -xzf "$fixture" -C preview
+          cd preview
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm --filter helico dev --host 127.0.0.1 --port 9476 --strictPort > "$RUNNER_TEMP/evidence/vite.txt" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl -fs http://127.0.0.1:9476/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fs http://127.0.0.1:9476/ >/dev/null
+          chrome='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+          node testdata/desktop/verify-pet-previews.mjs "$chrome" http://127.0.0.1:9476/ \
+            | tee "$RUNNER_TEMP/evidence/pet-previews.json"
+      - name: Keep native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-macos-pet-previews-${{ matrix.arch }}
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: ignore
+          retention-days: 14
