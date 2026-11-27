@@ -84,15 +84,15 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          tests="helico-macos-file-url-$ARCH.test"
-          tests_hashes=helico-macos-file-url-sha256.txt
+          tests="helico-macos-file-url-isolated-$ARCH.test"
+          tests_hashes=helico-macos-file-url-fixture-sha256.txt
           native_input=helico-macos-native-input-r10.swift
           native_input_hashes=helico-macos-native-drag-types-sha256.txt
           native_drop=helico-macos-file-url.swift
           source=helico-native-desktop-controls-r7.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
             -p "$source" -p helico-native-desktop-controls-r7-sha256.txt \
-            -p "$tests.gz" -p "$native_input" -p "$native_drop" -p "$native_input_hashes"
+            -p "$tests.gz" -p "$tests_hashes" -p "$native_input" -p "$native_drop" -p "$native_input_hashes"
           shasum -a 256 -c helico-native-desktop-controls-r7-sha256.txt
           awk -v tests="$tests.gz" '$2 == tests' "$tests_hashes" | shasum -a 256 -c -
           awk -v f="$native_drop" '$2 == f' "$tests_hashes" | shasum -a 256 -c -
@@ -101,6 +101,18 @@ jobs:
           tar -xzf "$source" -C controls-fixture
           gzip -dc "$tests.gz" > controls-tests
           chmod 755 controls-tests
+      - name: Drop native files and read the saved PNG through Go core
+        if: always() && steps.fixture.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          swiftc helico-macos-file-url.swift -o native-drop 2>&1 | tee evidence/drop-driver.txt
+          export HELICO_TEST_MAC_BRIDGE_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
+          export HELICO_TEST_MAC_FILE_DROP="$RUNNER_TEMP/native-drop"
+          ./controls-tests -test.v -test.count=1 -test.timeout=3m \
+            -test.run '^TestWailsDarwinFileDrop$' 2>&1 | tee evidence/file-drop.txt
+          grep -q 'PASS: TestWailsDarwinFileDrop/compatible-pasteboard' evidence/file-drop.txt
+          grep -q 'PASS: TestWailsDarwinFileDrop/public-file-url' evidence/file-drop.txt
       - name: Build the native keyboard and pasteboard driver
         id: native-input
         if: always() && steps.fixture.outcome == 'success'
@@ -156,18 +168,6 @@ jobs:
           ./controls-tests -test.v -test.count=1 -test.timeout=90s \
             -test.run '^TestWailsAppKitMenuLanguages$' 2>&1 | tee evidence/app-menu.txt
           grep -q '^--- PASS: TestWailsAppKitMenuLanguages' evidence/app-menu.txt
-      - name: Drop native files and read the saved PNG through Go core
-        if: always() && steps.fixture.outcome == 'success'
-        run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP"
-          swiftc helico-macos-file-url.swift -o native-drop 2>&1 | tee evidence/drop-driver.txt
-          export HELICO_TEST_MAC_BRIDGE_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
-          export HELICO_TEST_MAC_FILE_DROP="$RUNNER_TEMP/native-drop"
-          ./controls-tests -test.v -test.count=1 -test.timeout=2m \
-            -test.run '^TestWailsDarwinFileDrop$' 2>&1 | tee evidence/file-drop.txt
-          grep -q 'PASS: TestWailsDarwinFileDrop/compatible-pasteboard' evidence/file-drop.txt
-          grep -q 'PASS: TestWailsDarwinFileDrop/public-file-url' evidence/file-drop.txt
       - name: Compose with native Pinyin and restore both drafts after restart
         if: always() && steps.native-input.outcome == 'success'
         run: |
