@@ -1,0 +1,105 @@
+name: Helico macOS initial browser navigation probe
+
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-macos-homepage-probe.yml]
+
+permissions:
+  contents: write # The acceptance inputs are held in a draft release.
+
+jobs:
+  installed:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+            codex: x86_64
+            codex_sha256: 10a0972a1535206305e7b0ce2b096ddb4253542b4ac1599265b2d0c0898d278a
+          - runner: macos-15
+            arch: arm64
+            codex: aarch64
+            codex_sha256: bd121f8abd6b28b3fc476da04a348e25a83e89eda19d39107f68f8e966053092
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - name: Assemble the acceptance payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          base="desktop-$ARCH.tar.gz"
+          input="helico-macos-approval-$ARCH.tar.gz"
+          script=helico-macos-approval-fixture-r2.mjs
+          packager="retry-packager-$ARCH"
+          repack="repack-$ARCH"
+          assets=("$base" desktop-sha256.txt "$packager" native-test-sha256.txt "$repack" repack-sha256.txt remote-sha256.txt
+            "$input" helico-macos-approval-sha256.txt "$script" helico-macos-approval-fixture-r2-sha256.txt)
+          candidate="helico-mac-homepage-probe-core-$ARCH.gz"
+          fixture="helico-macos-ui-core-r3-$ARCH.test.gz"
+          assets+=("$candidate" "$fixture" helico-mac-homepage-probe-sha256.txt helico-macos-ui-core-r3-sha256.txt)
+          patterns=()
+          for asset in "${assets[@]}"; do patterns+=(-p "$asset"); done
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" "${patterns[@]}"
+          awk -v f="$base" '$2 == f' desktop-sha256.txt | shasum -a 256 -c -
+          awk -v f="$repack" '$2 == f' repack-sha256.txt | shasum -a 256 -c -
+          awk -v f="$packager" '$2 == f' native-test-sha256.txt | shasum -a 256 -c -
+          awk -v f="$input" '$2 == f' helico-macos-approval-sha256.txt | shasum -a 256 -c -
+          shasum -a 256 -c helico-macos-approval-fixture-r2-sha256.txt
+          tar -xzf "$base"
+          mkdir fresh
+          tar -xzf "$input" -C fresh
+          install -m 644 "$script" fresh/verify-codex-restart.mjs
+          payload="macos-$ARCH-payload"
+          for program in helico helico-core helico-daemon helico-helper helico-channel-gateway helico-mcp; do
+            install -m 755 "fresh/$program" "$payload/$program"
+          done
+          awk -v f="$candidate" '$2 == f' helico-mac-homepage-probe-sha256.txt | shasum -a 256 -c -
+          gzip -dc "$candidate" > "$payload/helico-core"
+          chmod 755 "$payload/helico-core"
+          awk -v f="$fixture" '$2 == f' helico-macos-ui-core-r3-sha256.txt | shasum -a 256 -c -
+          gzip -dc "$fixture" > homepage-tests
+          chmod 755 homepage-tests
+          mkdir -p "$payload/remote" build/macos
+          install -m 644 fresh/helico.png build/macos/helico.png
+          deb=helico-0.22.0-beta.2-linux-amd64.deb
+          gh release download v0.22.0-beta.2 -R "$GITHUB_REPOSITORY" -p "$deb" -p SHA256SUMS
+          awk -v f="$deb" '$2 == f' SHA256SUMS | shasum -a 256 -c -
+          ar -p "$deb" data.tar.gz | tar -xOzf - ./usr/lib/helico/payload.tar | tar -xf - ./remote
+          chmod 755 "$repack" "$packager"
+          for remote_arch in amd64 arm64; do
+            "./$repack" "remote/linux-$remote_arch" "$payload/remote/linux-$remote_arch.tar.gz"
+          done
+          (cd "$payload/remote" && shasum -a 256 -c "$RUNNER_TEMP/remote-sha256.txt")
+      - name: Build the DMG and install the app
+        id: package
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          "./retry-packager-$ARCH" -arch "$ARCH" -payload "macos-$ARCH-payload" -out dmg -version 0.22.0-beta.2
+          mkdir -p mount installed evidence
+          hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/mount" dmg/*.dmg
+          trap 'hdiutil detach "$RUNNER_TEMP/mount" || hdiutil detach -force "$RUNNER_TEMP/mount"' EXIT
+          ditto mount/helico.app installed/helico.app
+          codesign --verify --deep --strict installed/helico.app
+      - name: Verify the initial navigation on the installed Mac app
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          export HELICO_TEST_BROWSER_HOMEPAGE_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
+          ./homepage-tests -test.v -test.count=1 -test.timeout=3m -test.run '^TestWailsBrowserHomepage$' \
+            2>&1 | tee evidence/homepage.txt
+          grep -q '^--- PASS: TestWailsBrowserHomepage' evidence/homepage.txt
+      - name: Keep native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-macos-homepage-probe-${{ matrix.arch }}
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: ignore
+          retention-days: 14
