@@ -82,10 +82,10 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP"
           tests="helico-native-controls-r3-$ARCH.test"
-          source=helico-native-desktop-controls-r6.tar.gz
+          source=helico-native-desktop-controls-r7.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
-            -p "$source" -p helico-native-desktop-controls-r6-sha256.txt -p "$tests.gz" -p helico-native-controls-r3-sha256.txt
-          shasum -a 256 -c helico-native-desktop-controls-r6-sha256.txt
+            -p "$source" -p helico-native-desktop-controls-r7-sha256.txt -p "$tests.gz" -p helico-native-controls-r3-sha256.txt
+          shasum -a 256 -c helico-native-desktop-controls-r7-sha256.txt
           awk -v tests="$tests.gz" '$2 == tests' helico-native-controls-r3-sha256.txt | shasum -a 256 -c -
           mkdir controls-fixture
           tar -xzf "$source" -C controls-fixture
@@ -158,6 +158,16 @@ jobs:
           ./controls-tests -test.v -test.count=1 -test.timeout=10m \
             -test.run '^TestZCode(NativeCatalog|NativeSessionResume|ConfiguredImageProvider)$' 2>&1 | tee evidence/zcode.txt
           test "$(grep -c '^--- PASS: TestZCode' evidence/zcode.txt)" -eq 3
+      - name: Retry a stalled Cursor turn through Wails and Go daemon
+        if: always() && steps.fixture.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          programs="$RUNNER_TEMP/installed/helico.app/Contents/MacOS"
+          install -m 755 "$programs/helico-mcp" ./helico-mcp
+          HELICO_TEST_CURSOR_WAILS="$programs/helico" ./controls-tests -test.v -test.count=1 -test.timeout=4m \
+            -test.run '^TestCursorFirstFrameRetryThroughGoDaemon$' 2>&1 | tee evidence/cursor-retry.txt
+          grep -q '^--- PASS: TestCursorFirstFrameRetryThroughGoDaemon' evidence/cursor-retry.txt
       - name: Keep native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
