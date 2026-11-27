@@ -62,7 +62,8 @@ jobs:
           package="@opencode/cli-darwin-$platform_arch"
           npm install --prefix opencode --no-save --ignore-scripts --no-audit --no-fund "$package@2.1.1"
           export HELICO_TEST_OPENCODE_BINARY="$RUNNER_TEMP/opencode/node_modules/$package/bin/opencode"
-          test "$("$HELICO_TEST_OPENCODE_BINARY" --version)" = 2.1.1
+          version=$("$HELICO_TEST_OPENCODE_BINARY" --version)
+          test "$version" = 'opencode v2.1.1'
           programs/helico-core-tests -test.v -test.count=1 -test.timeout=10m \
             -test.run '^TestOpenCodeNative(Session|ConversationFork)$' 2>&1 | tee evidence/opencode.txt
           test "$(grep -c '^--- PASS: TestOpenCodeNative' evidence/opencode.txt)" -eq 2
