@@ -1,4 +1,4 @@
-name: Helico macOS native Claude and Antigravity
+name: Helico macOS native Agent workflows
 
 on:
   push:
@@ -18,10 +18,14 @@ jobs:
             arch: amd64
             claude: darwin-x64
             claude_sha256: 3439427bfce962fddcf557c5a058ca914fa63e06fee894f8e12a3f10e04d1871
+            codex: x86_64
+            codex_sha256: 10a0972a1535206305e7b0ce2b096ddb4253542b4ac1599265b2d0c0898d278a
           - runner: macos-15
             arch: arm64
             claude: darwin-arm64
             claude_sha256: 1f04c69e1c24e4d0a716a863af0aad8fc64d49a499334c29701f073700276b99
+            codex: aarch64
+            codex_sha256: bd121f8abd6b28b3fc476da04a348e25a83e89eda19d39107f68f8e966053092
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     env:
@@ -48,16 +52,24 @@ jobs:
         env:
           CLAUDE_PLATFORM: ${{ matrix.claude }}
           CLAUDE_SHA256: ${{ matrix.claude_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+          CODEX_ARCH: ${{ matrix.codex }}
+          CODEX_HASH: ${{ matrix.codex_sha256 }}
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          mkdir claude-bin
+          mkdir claude-bin codex-bin
           url="https://downloads.claude.ai/claude-code-releases/2.1.301/$CLAUDE_PLATFORM/claude"
           curl --fail --show-error --silent --location --retry 3 --max-time 180 "$url" -o claude-bin/claude
           printf '%s  %s\n' "$CLAUDE_SHA256" claude-bin/claude | shasum -a 256 -c -
           chmod 755 claude-bin/claude
+          codex="codex-$CODEX_ARCH-apple-darwin"
+          gh release download rust-v0.172.0 -R openai/codex -p "$codex.tar.gz"
+          printf '%s  %s\n' "$CODEX_HASH" "$codex.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$codex.tar.gz"
+          install -m 755 "$codex" codex-bin/codex
           status=0
-          if ! node verify-claude-macos-2.1.301.mjs claude-bin/claude programs 2>&1 | tee evidence/claude-restart.txt; then status=1; fi
+          if ! node verify-claude-macos-2.1.301.mjs claude-bin/claude programs codex-bin/codex --missing-sessions --model-providers 2>&1 | tee evidence/claude-handoff.txt; then status=1; fi
           if ! node verify-claude-macos-2.1.301.mjs claude-bin/claude programs --background-stop 2>&1 | tee evidence/claude-background.txt; then status=1; fi
           exit "$status"
       - name: Exercise Antigravity installation through the Go daemon
@@ -65,9 +77,22 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          export HELICO_TEST_ANTIGRAVITY_DOWNLOAD=1
-          programs/helico-core-tests -test.v -test.count=1 -test.timeout=10m -test.run '^TestAntigravityNativeInstallFromTerminal$' 2>&1 | tee evidence/antigravity-install.txt
+          HELICO_TEST_ANTIGRAVITY_DOWNLOAD=1 programs/helico-core-tests -test.v -test.count=1 -test.timeout=10m -test.run '^TestAntigravityNativeInstallFromTerminal$' 2>&1 | tee evidence/antigravity-install.txt
           grep -q '^--- PASS: TestAntigravityNativeInstallFromTerminal' evidence/antigravity-install.txt
+          export HELICO_TEST_ANTIGRAVITY_DATA="$RUNNER_TEMP/antigravity-data"
+          programs/helico-helper install-antigravity --home "$HELICO_TEST_ANTIGRAVITY_DATA"
+          programs/helico-core-tests -test.v -test.count=1 -test.timeout=4m -test.run '^TestAntigravityNativeRuntime$' 2>&1 | tee evidence/antigravity-runtime.txt
+          grep -q '^--- PASS: TestAntigravityNativeRuntime' evidence/antigravity-runtime.txt
+      - name: Exercise the DSH ACP session and catalog
+        if: always() && steps.fixtures.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          npm install --prefix dsh --no-save --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.2-rc.3
+          export HELICO_TEST_DSH_BINARY="$RUNNER_TEMP/dsh/node_modules/.bin/dsh"
+          tests='DSHNativeCatalogKeepsProbeSessionsPrivate|DSHNativeReadOnlySession'
+          programs/helico-core-tests -test.v -test.count=1 -test.timeout=6m -test.run "^Test($tests)$" 2>&1 | tee evidence/dsh.txt
+          test "$(grep -c '^--- PASS: TestDSH' evidence/dsh.txt)" -eq 2
       - name: Keep native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
