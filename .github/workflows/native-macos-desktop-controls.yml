@@ -81,15 +81,17 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          tests="helico-macos-native-input-r3-$ARCH.test"
-          tests_hashes=helico-macos-native-input-r3-sha256.txt
+          tests="helico-macos-native-input-r4-$ARCH.test"
+          tests_hashes=helico-macos-native-input-r4-sha256.txt
           native_input=helico-macos-native-input-r3.swift
+          native_input_hashes=helico-macos-native-input-r3-sha256.txt
           source=helico-native-desktop-controls-r7.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
             -p "$source" -p helico-native-desktop-controls-r7-sha256.txt \
-            -p "$tests.gz" -p "$native_input" -p "$tests_hashes"
+            -p "$tests.gz" -p "$native_input" -p "$tests_hashes" -p "$native_input_hashes"
           shasum -a 256 -c helico-native-desktop-controls-r7-sha256.txt
-          awk -v tests="$tests.gz" -v input="$native_input" '$2 == tests || $2 == input' "$tests_hashes" | shasum -a 256 -c -
+          awk -v tests="$tests.gz" '$2 == tests' "$tests_hashes" | shasum -a 256 -c -
+          awk -v input="$native_input" '$2 == input' "$native_input_hashes" | shasum -a 256 -c -
           mkdir controls-fixture
           tar -xzf "$source" -C controls-fixture
           gzip -dc "$tests.gz" > controls-tests
