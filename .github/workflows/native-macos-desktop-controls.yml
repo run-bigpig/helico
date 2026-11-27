@@ -74,27 +74,68 @@ jobs:
           trap 'hdiutil detach "$RUNNER_TEMP/mount" || hdiutil detach -force "$RUNNER_TEMP/mount"' EXIT
           ditto mount/helico.app installed/helico.app
           codesign --verify --deep --strict installed/helico.app
-      - name: Switch Git worktrees in the detached window and dock it
+      - name: Prepare the desktop controls fixtures
+        id: fixture
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
+          tests="helico-native-controls-r2-$ARCH.test"
+          source=helico-native-desktop-controls-r2.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
-            -p helico-native-git-workspace.tar.gz -p helico-native-git-workspace-sha256.txt
-          shasum -a 256 -c helico-native-git-workspace-sha256.txt
-          mkdir git-fixture
-          tar -xzf helico-native-git-workspace.tar.gz -C git-fixture
-          programs="$RUNNER_TEMP/installed/helico.app/Contents/MacOS"
-          node git-fixture/testdata/desktop/verify-git-manager.mjs "$programs" "$programs/helico" /usr/bin/git \
-            2>&1 | tee evidence/git.txt
-      - name: Check availability of system input and accessibility
-        if: always() && steps.package.outcome == 'success'
+            -p "$source" -p "$tests.gz" -p helico-native-controls-r2-sha256.txt
+          awk -v source="$source" -v tests="$tests.gz" '$2 == source || $2 == tests' helico-native-controls-r2-sha256.txt | shasum -a 256 -c -
+          mkdir controls-fixture
+          tar -xzf "$source" -C controls-fixture
+          gzip -dc "$tests.gz" > controls-tests
+          chmod 755 controls-tests
+      - name: Restore, switch and dock the detached Git window
+        if: always() && steps.fixture.outcome == 'success'
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          swift -e 'import AppKit; import CoreGraphics; print("accessibility: \(AXIsProcessTrusted()), post events: \(CGPreflightPostEventAccess())")' \
-            2>&1 | tee evidence/input-access.txt
+          programs="$RUNNER_TEMP/installed/helico.app/Contents/MacOS"
+          node controls-fixture/testdata/desktop/verify-git-manager.mjs "$programs" "$programs/helico" /usr/bin/git \
+            2>&1 | tee evidence/git.txt
+      - name: Verify native file and bookmark choosers
+        if: always() && steps.fixture.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          swiftc controls-fixture/testdata/desktop/choose-dialog-macos.swift -o choose-dialog 2>&1 | tee evidence/chooser-build.txt
+          app="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
+          export HELICO_TEST_MAC_BRIDGE_WAILS="$app" HELICO_TEST_BOOKMARKS_WAILS="$app"
+          export HELICO_TEST_MAC_FILE_CHOOSER="$RUNNER_TEMP/choose-dialog" HELICO_TEST_BOOKMARKS_CHOOSER="$RUNNER_TEMP/choose-dialog"
+          ./controls-tests -test.v -test.count=1 -test.timeout=5m \
+            -test.run '^Test(WailsDarwinFilePickers|WailsBookmarksHTMLPicker)$' 2>&1 | tee evidence/choosers.txt
+          test "$(grep -c '^--- PASS: Test' evidence/choosers.txt)" -eq 2
+      - name: Verify file and backend bridges on the installed desktop
+        if: always() && steps.fixture.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          export HELICO_TEST_MAC_BRIDGE_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
+          ./controls-tests -test.v -test.count=1 -test.timeout=2m \
+            -test.run '^TestWailsDarwinDesktopBridge$' 2>&1 | tee evidence/file-backend.txt
+          grep -q '^--- PASS: TestWailsDarwinDesktopBridge' evidence/file-backend.txt
+      - name: Skip and restore an offered update
+        if: always() && steps.fixture.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          export HELICO_TEST_UPDATE_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
+          ./controls-tests -test.v -test.count=1 -test.timeout=7m \
+            -test.run '^TestWailsUpdatePrerelease$' 2>&1 | tee evidence/update.txt
+          grep -q '^--- PASS: TestWailsUpdatePrerelease' evidence/update.txt
+      - name: List the published Helico Go plugin packages through the core
+        if: always() && steps.fixture.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          HELICO_TEST_PLUGIN_GITHUB_RELEASES=1 ./controls-tests -test.v -test.count=1 -test.timeout=2m \
+            -test.run '^TestCoreListsPublishedHelicoPluginPackages$' 2>&1 | tee evidence/plugin-release.txt
+          grep -q '^--- PASS: TestCoreListsPublishedHelicoPluginPackages' evidence/plugin-release.txt
       - name: Keep native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
