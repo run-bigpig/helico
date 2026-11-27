@@ -1,0 +1,122 @@
+name: Helico installed macOS approvals and task workflows
+
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-macos-approval.yml]
+
+permissions:
+  contents: write # The acceptance inputs are held in a draft release.
+
+jobs:
+  installed:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+            codex: x86_64
+            codex_sha256: 10a0972a1535206305e7b0ce2b096ddb4253542b4ac1599265b2d0c0898d278a
+          - runner: macos-15
+            arch: arm64
+            codex: aarch64
+            codex_sha256: bd121f8abd6b28b3fc476da04a348e25a83e89eda19d39107f68f8e966053092
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Assemble the acceptance payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          base="desktop-$ARCH.tar.gz"
+          input="helico-macos-approval-$ARCH.tar.gz"
+          packager="retry-packager-$ARCH"
+          repack="repack-$ARCH"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" -p "$base" +            -p desktop-sha256.txt -p "$packager" -p "$repack" -p repack-sha256.txt -p remote-sha256.txt +            -p "$input" -p helico-macos-approval-sha256.txt
+          awk -v f="$base" '$2 == f' desktop-sha256.txt | shasum -a 256 -c -
+          awk -v f="$repack" '$2 == f' repack-sha256.txt | shasum -a 256 -c -
+          awk -v f="$packager" '$2 == f' desktop-sha256.txt | shasum -a 256 -c -
+          awk -v f="$input" '$2 == f' helico-macos-approval-sha256.txt | shasum -a 256 -c -
+          tar -xzf "$base"
+          mkdir fresh
+          tar -xzf "$input" -C fresh
+          payload="macos-$ARCH-payload"
+          for program in helico helico-core helico-daemon helico-helper helico-channel-gateway helico-mcp; do
+            install -m 755 "fresh/$program" "$payload/$program"
+          done
+          mkdir -p "$payload/remote" build/macos
+          install -m 644 fresh/helico.png build/macos/helico.png
+          deb=helico-0.22.0-beta.2-linux-amd64.deb
+          gh release download v0.22.0-beta.2 -R "$GITHUB_REPOSITORY" -p "$deb" -p SHA256SUMS
+          awk -v f="$deb" '$2 == f' SHA256SUMS | shasum -a 256 -c -
+          ar -p "$deb" data.tar.gz | tar -xOzf - ./usr/lib/helico/payload.tar | tar -xf - ./remote
+          chmod 755 "$repack" "$packager"
+          for remote_arch in amd64 arm64; do
+            "./$repack" "remote/linux-$remote_arch" "$payload/remote/linux-$remote_arch.tar.gz"
+          done
+          (cd "$payload/remote" && shasum -a 256 -c "$RUNNER_TEMP/remote-sha256.txt")
+      - name: Build the DMG and install the app
+        id: package
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          "./retry-packager-$ARCH" -arch "$ARCH" -payload "macos-$ARCH-payload" -out dmg -version 0.22.0-beta.2
+          mkdir -p mount installed evidence
+          hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/mount" dmg/*.dmg
+          trap 'hdiutil detach "$RUNNER_TEMP/mount" || hdiutil detach -force "$RUNNER_TEMP/mount"' EXIT
+          ditto mount/helico.app installed/helico.app
+          codesign --verify --deep --strict installed/helico.app
+      - name: Install the native Codex fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CODEX_ARCH: ${{ matrix.codex }}
+          CODEX_HASH: ${{ matrix.codex_sha256 }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          name="codex-$CODEX_ARCH-apple-darwin"
+          gh release download rust-v0.172.0 -R openai/codex -p "$name.tar.gz"
+          printf '%s  %s\n' "$CODEX_HASH" "$name.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$name.tar.gz"
+          mkdir tools
+          install -m 755 "$name" tools/codex
+          tools/codex --version
+      - name: Exercise the installed app with the native Codex CLI
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          app="$RUNNER_TEMP/installed/helico.app/Contents/MacOS"
+          status=0
+          for scenario in approval-popup task-launch task-conversation-rows project-file-lookup git-inspector; do
+            if ! node fresh/verify-codex-restart.mjs "$RUNNER_TEMP/tools/codex" "$app" \
+              --wails "--$scenario" 2>&1 | tee "evidence/$scenario.txt"; then status=1; fi
+          done
+          exit "$status"
+      - name: Verify Claude suggestions and channel scope
+        if: always() && steps.package.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          app="$RUNNER_TEMP/installed/helico.app/Contents/MacOS"
+          export HELICO_TEST_CLAUDE_SUGGESTIONS_WAILS="$app/helico"
+          export HELICO_TEST_MCP_BINARY="$app/helico-mcp"
+          chmod 755 fresh/helico-core-tests
+          tests='WailsClaudePromptSuggestions|ChannelLockedClaudeAndProjectTools|ProjectFileSearchRanksMatchesAndRespectsGitIgnore|StartMobileIsDeferred'
+          fresh/helico-core-tests -test.v -test.count=1 -test.timeout=6m -test.run "^Test($tests)$" 2>&1 | tee evidence/core.txt
+          test "$(grep -c '^--- PASS: Test' evidence/core.txt)" -eq 4
+      - name: Keep native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-macos-approval-${{ matrix.arch }}
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: ignore
+          retention-days: 14
