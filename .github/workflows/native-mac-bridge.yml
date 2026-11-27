@@ -1,0 +1,213 @@
+name: Helico installed macOS bridge and Git
+
+on:
+  push:
+    branches: [ci/native-macos-check]
+    paths: [.github/workflows/native-mac-bridge.yml]
+
+permissions:
+  contents: write # Draft release inputs require push access.
+
+jobs:
+  dmg:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            goarch: amd64
+            nodearch: x64
+          - runner: macos-15
+            goarch: arm64
+            nodearch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - name: Fetch acceptance inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.goarch }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
+            -p "desktop-$ARCH.tar.gz" -p "retry-packager-$ARCH" -p "repack-$ARCH" \
+            -p "macos-fixes-$ARCH.tar" -p fixes-sha256.txt -p desktop-sha256.txt \
+            -p repack-sha256.txt -p remote-sha256.txt -p helico.png \
+            -p mcp-acceptance.tar.gz -p mcp-acceptance-sha256.txt \
+            -p "helico-guide-$ARCH.vcdiff" -p "helico-native-next-$ARCH.vcdiff" \
+            -p "helico-navigation-$ARCH.vcdiff" -p "helico-terminal-replay-$ARCH.gz" -p "helico-terminal-$ARCH.vcdiff" \
+            -p "helico-terminal-resize-$ARCH.vcdiff" -p terminal-resize-sha256.txt \
+            -p "helico-terminal-repaint-$ARCH.vcdiff" -p terminal-repaint-sha256.txt \
+            -p "helico-pty-replay-$ARCH-desktop.vcdiff" \
+            -p "helico-pty-replay-$ARCH-core.vcdiff" \
+            -p "helico-pty-replay-$ARCH-daemon.vcdiff" \
+            -p "helico-pty-replay-$ARCH-tests.vcdiff" \
+            -p terminal-pty-replay-sha256.txt \
+            -p "helico-appkit-$ARCH-desktop.vcdiff" -p "helico-appkit-$ARCH-tests.vcdiff" \
+            -p appkit-menu-sha256.txt \
+            -p "helico-appkit-confirm-$ARCH-tests.vcdiff" -p appkit-menu-confirm-sha256.txt \
+            -p "helico-browser-data-$ARCH-tests.vcdiff" -p browser-data-sha256.txt \
+            -p "helico-browser-exit-darwin-$ARCH-tests.vcdiff" -p browser-exit-sha256.txt \
+            -p "helico-mac-reopen-$ARCH-desktop.vcdiff" -p "helico-mac-reopen-$ARCH-tests.vcdiff" -p mac-reopen-sha256.txt \
+            -p "helico-window-id-$ARCH-desktop.vcdiff" -p "helico-window-id-$ARCH-tests.vcdiff" -p window-id-sha256.txt \
+            -p "helico-terminal-trace-test-$ARCH.vcdiff" -p terminal-trace-sha256.txt \
+            -p "helico-terminal-observe-test-$ARCH.vcdiff" -p terminal-observe-test-sha256.txt \
+            -p native-test-sha256.txt -p native-guide-sha256.txt -p native-guide-binary-sha256.txt \
+            -p native-next-input-sha256.txt -p native-next-binary-sha256.txt -p navigation-input-sha256.txt -p navigation-binary-sha256.txt -p terminal-replay-sha256.txt -p terminal-binary-sha256.txt
+          cat desktop-sha256.txt repack-sha256.txt fixes-sha256.txt native-test-sha256.txt native-guide-sha256.txt | awk -v arch="$ARCH" \
+            '$2 == "desktop-" arch ".tar.gz" || $2 == "retry-packager-" arch || $2 == "macos-fixes-" arch ".tar" || $2 == "repack-" arch || $2 == "helico-guide-" arch ".vcdiff"' | shasum -a 256 -c -
+          awk -v arch="$ARCH" '$2 == "helico-native-next-" arch ".vcdiff"' native-next-input-sha256.txt | shasum -a 256 -c -
+          awk -v arch="$ARCH" '$2 == "helico-navigation-" arch ".vcdiff"' navigation-input-sha256.txt | shasum -a 256 -c -
+          awk -v arch="$ARCH" '$2 == "helico-terminal-replay-" arch ".gz" || $2 == "helico-terminal-" arch ".vcdiff"' terminal-replay-sha256.txt | shasum -a 256 -c -
+          tar -xzf "desktop-$ARCH.tar.gz"
+          mkdir -p build/macos "delta-$ARCH"
+          mv helico.png build/macos/
+          tar -xf "macos-fixes-$ARCH.tar" -C "delta-$ARCH"
+          if ! command -v xdelta3; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install xdelta
+          fi
+          for program in helico helico-core helico-daemon helico-helper helico-channel-gateway helico-mcp; do
+            file="macos-$ARCH-payload/$program"
+            xdelta3 -d -s "$file" "delta-$ARCH/$program.vcdiff" "$file.patched"
+            chmod +x "$file.patched"
+            mv "$file.patched" "$file"
+          done
+          (cd "macos-$ARCH-payload" && shasum -a 256 -c "$RUNNER_TEMP/delta-$ARCH/binary-sha256.txt")
+          chmod +x "retry-packager-$ARCH" "repack-$ARCH"
+          DEB=helico-0.22.0-beta.2-linux-amd64.deb
+          gh release download v0.22.0-beta.2 -R "$GITHUB_REPOSITORY" -p "$DEB" -p SHA256SUMS
+          awk -v deb="$DEB" '$2 == deb' SHA256SUMS | shasum -a 256 -c -
+          ar -p "$DEB" data.tar.gz | tar -xOzf - ./usr/lib/helico/payload.tar | tar -xf - ./remote
+          for remote_arch in amd64 arm64; do
+            "./repack-$ARCH" "remote/linux-$remote_arch" "macos-$ARCH-payload/remote/linux-$remote_arch.tar.gz"
+          done
+          (cd "macos-$ARCH-payload/remote" && shasum -a 256 -c "$RUNNER_TEMP/remote-sha256.txt")
+
+      - name: Build and install the native acceptance bundle
+        id: package
+        env:
+          ARCH: ${{ matrix.goarch }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          (
+            shasum -a 256 -c mcp-acceptance-sha256.txt
+            mkdir -p update-delta dmg-native native-fixtures native-mount
+            tar -xzf mcp-acceptance.tar.gz -C native-fixtures
+            payload="macos-$ARCH-payload"
+            xdelta3 -d -s "$payload/helico" "helico-guide-$ARCH.vcdiff" update-delta/helico
+            (cd update-delta && awk -v arch="$ARCH" '$2 == "helico-guide-" arch { print $1, " helico" }' ../native-guide-binary-sha256.txt | shasum -a 256 -c -)
+            xdelta3 -d -s update-delta/helico "helico-native-next-$ARCH.vcdiff" "helico-fullscreen-frame-$ARCH"
+            awk -v arch="$ARCH" '$2 == "helico-fullscreen-frame-" arch' native-next-binary-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s "helico-fullscreen-frame-$ARCH" "helico-navigation-$ARCH.vcdiff" "helico-navigation-$ARCH"
+            awk -v arch="$ARCH" '$2 == "helico-navigation-" arch' navigation-binary-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s "helico-navigation-$ARCH" "helico-terminal-$ARCH.vcdiff" "helico-terminal-$ARCH"
+            awk -v arch="$ARCH" '$2 == "helico-terminal-" arch' terminal-binary-sha256.txt | shasum -a 256 -c -
+            awk -v arch="$ARCH" '$2 == "helico-terminal-resize-" arch ".vcdiff"' terminal-resize-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s "helico-terminal-$ARCH" "helico-terminal-resize-$ARCH.vcdiff" "helico-terminal-resize-$ARCH"
+            awk -v arch="$ARCH" '$2 == "helico-terminal-resize-" arch' terminal-resize-sha256.txt | shasum -a 256 -c -
+            awk -v arch="$ARCH" '$2 == "helico-terminal-repaint-" arch ".vcdiff"' terminal-repaint-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s "helico-terminal-resize-$ARCH" "helico-terminal-repaint-$ARCH.vcdiff" "helico-terminal-repaint-$ARCH"
+            awk -v arch="$ARCH" '$2 == "helico-terminal-repaint-" arch' terminal-repaint-sha256.txt | shasum -a 256 -c -
+            awk -v arch="$ARCH" '$2 ~ ("^helico-pty-replay-" arch "-.*[.]vcdiff$")' terminal-pty-replay-sha256.txt | shasum -a 256 -c -
+            for program in desktop core daemon; do
+              name="helico-pty-replay-$ARCH-$program"
+              case "$program" in
+                desktop) base="helico-terminal-repaint-$ARCH"; binary=helico ;;
+                core) base="$payload/helico-core"; binary=helico-core ;;
+                daemon) base="$payload/helico-daemon"; binary=helico-daemon ;;
+              esac
+              xdelta3 -d -s "$base" "$name.vcdiff" "$name"
+              awk -v name="$name" '$2 == name' terminal-pty-replay-sha256.txt | shasum -a 256 -c -
+              install -m 755 "$name" "$payload/$binary"
+            done
+            awk -v arch="$ARCH" '$2 ~ ("^helico-appkit-" arch "-.*[.]vcdiff$")' appkit-menu-sha256.txt | shasum -a 256 -c -
+            menu_desktop="helico-appkit-$ARCH-desktop"
+            xdelta3 -d -s "$payload/helico" "$menu_desktop.vcdiff" "$menu_desktop"
+            awk -v name="$menu_desktop" '$2 == name' appkit-menu-sha256.txt | shasum -a 256 -c -
+            reopen_desktop="helico-mac-reopen-$ARCH-desktop"
+            awk -v name="$reopen_desktop" '$2 == name ".vcdiff"' mac-reopen-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s "$menu_desktop" "$reopen_desktop.vcdiff" "$reopen_desktop"
+            awk -v name="$reopen_desktop" '$2 == name' mac-reopen-sha256.txt | shasum -a 256 -c -
+            window_id_desktop="helico-window-id-$ARCH-desktop"
+            awk -v name="$window_id_desktop" '$2 == name ".vcdiff"' window-id-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s "$reopen_desktop" "$window_id_desktop.vcdiff" "$window_id_desktop"
+            awk -v name="$window_id_desktop" '$2 == name' window-id-sha256.txt | shasum -a 256 -c -
+            install -m 755 "$window_id_desktop" "$payload/helico"
+            "./retry-packager-$ARCH" -arch "$ARCH" -payload "$payload" -out dmg-native -version 0.22.0-beta.2
+            hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/native-mount" dmg-native/*.dmg
+            ditto "$RUNNER_TEMP/native-mount/helico.app" "$RUNNER_TEMP/native-fixtures/helico.app"
+            for attempt in 1 2 3; do
+              if hdiutil detach "$RUNNER_TEMP/native-mount"; then break; fi
+              if [ "$attempt" -eq 3 ]; then hdiutil detach -force "$RUNNER_TEMP/native-mount"; fi
+              sleep 2
+            done
+            codesign --verify --deep --strict native-fixtures/helico.app
+            gzip -dc "helico-terminal-replay-$ARCH.gz" > helico-core-tests-base
+            awk -v arch="$ARCH" '$2 == "helico-terminal-trace-test-" arch ".vcdiff"' terminal-trace-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s helico-core-tests-base "helico-terminal-trace-test-$ARCH.vcdiff" helico-core-tests-trace
+            awk -v arch="$ARCH" '$2 == "helico-terminal-trace-test-" arch {print $1, " helico-core-tests-trace"}' terminal-trace-sha256.txt | shasum -a 256 -c -
+            awk -v arch="$ARCH" '$2 == "helico-terminal-observe-test-" arch ".vcdiff"' terminal-observe-test-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s helico-core-tests-trace "helico-terminal-observe-test-$ARCH.vcdiff" helico-core-tests
+            awk -v arch="$ARCH" '$2 == "helico-terminal-observe-test-" arch {print $1, " helico-core-tests"}' terminal-observe-test-sha256.txt | shasum -a 256 -c -
+            tests="helico-pty-replay-$ARCH-tests"
+            xdelta3 -d -s helico-core-tests "$tests.vcdiff" "$tests"
+            awk -v name="$tests" '$2 == name' terminal-pty-replay-sha256.txt | shasum -a 256 -c -
+            mv "$tests" helico-core-tests
+            menu_tests="helico-appkit-$ARCH-tests"
+            xdelta3 -d -s helico-core-tests "$menu_tests.vcdiff" "$menu_tests"
+            awk -v name="$menu_tests" '$2 == name' appkit-menu-sha256.txt | shasum -a 256 -c -
+            mv "$menu_tests" helico-core-tests
+            menu_tests="helico-appkit-confirm-$ARCH-tests"
+            awk -v name="$menu_tests" '$2 == name ".vcdiff"' appkit-menu-confirm-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s helico-core-tests "$menu_tests.vcdiff" "$menu_tests"
+            awk -v name="$menu_tests" '$2 == name' appkit-menu-confirm-sha256.txt | shasum -a 256 -c -
+            mv "$menu_tests" helico-core-tests
+            browser_tests="helico-browser-data-$ARCH-tests"
+            awk -v name="$browser_tests" '$2 == name ".vcdiff"' browser-data-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s helico-core-tests "$browser_tests.vcdiff" "$browser_tests"
+            awk -v name="$browser_tests" '$2 == name' browser-data-sha256.txt | shasum -a 256 -c -
+            mv "$browser_tests" helico-core-tests
+            exit_tests="helico-browser-exit-darwin-$ARCH-tests"
+            awk -v name="$exit_tests" '$2 == name ".vcdiff"' browser-exit-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s helico-core-tests "$exit_tests.vcdiff" "$exit_tests"
+            awk -v name="$exit_tests" '$2 == name' browser-exit-sha256.txt | shasum -a 256 -c -
+            reopen_tests="helico-mac-reopen-$ARCH-tests"
+            awk -v name="$reopen_tests" '$2 == name ".vcdiff"' mac-reopen-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s "$exit_tests" "$reopen_tests.vcdiff" "$reopen_tests"
+            awk -v name="$reopen_tests" '$2 == name' mac-reopen-sha256.txt | shasum -a 256 -c -
+            window_id_tests="helico-window-id-$ARCH-tests"
+            awk -v name="$window_id_tests" '$2 == name ".vcdiff"' window-id-sha256.txt | shasum -a 256 -c -
+            xdelta3 -d -s "$reopen_tests" "$window_id_tests.vcdiff" "$window_id_tests"
+            awk -v name="$window_id_tests" '$2 == name' window-id-sha256.txt | shasum -a 256 -c -
+            mv "$window_id_tests" helico-core-tests
+            chmod 755 helico-core-tests
+          ) 2>&1 | tee native-package.txt
+
+      - name: Verify the installed desktop bridge and Go Git behavior
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          binary="helico-mac-bridge-$ARCH.test"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" -p "$binary.gz" -p helico-mac-bridge-sha256.txt
+          awk -v name="$binary.gz" '$2 == name' helico-mac-bridge-sha256.txt | shasum -a 256 -c - | tee native-bridge.txt
+          gzip -dc "$binary.gz" > "$binary"
+          chmod 755 "$binary"
+          export HELICO_TEST_MAC_BRIDGE_WAILS="$RUNNER_TEMP/native-fixtures/helico.app/Contents/MacOS/helico"
+          tests='WailsDarwinDesktopBridge|GitWriteRPCs|TaskChangesAcrossWorktreeHistory|WorktreeCleanAndArchiveLifecycle'
+          "./$binary" -test.v -test.count=1 -test.timeout=8m -test.run "^Test($tests)$" 2>&1 | tee -a native-bridge.txt
+          test "$(grep -c '^--- PASS: Test' native-bridge.txt)" -eq 4
+
+      - name: Retain native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-mac-bridge-${{ matrix.goarch }}
+          path: ${{ runner.temp }}/native-bridge.txt
+          retention-days: 14
