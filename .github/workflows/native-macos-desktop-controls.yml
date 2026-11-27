@@ -81,8 +81,8 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          tests="helico-macos-native-input-r4-$ARCH.test"
-          tests_hashes=helico-macos-native-input-r4-sha256.txt
+          tests="helico-macos-native-input-r5-$ARCH.test"
+          tests_hashes=helico-macos-native-input-r5-sha256.txt
           native_input=helico-macos-native-input-r3.swift
           native_input_hashes=helico-macos-native-input-r3-sha256.txt
           source=helico-native-desktop-controls-r7.tar.gz
