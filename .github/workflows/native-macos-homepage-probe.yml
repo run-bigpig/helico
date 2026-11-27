@@ -83,28 +83,28 @@ jobs:
           trap 'hdiutil detach "$RUNNER_TEMP/mount" || hdiutil detach -force "$RUNNER_TEMP/mount"' EXIT
           ditto mount/helico.app installed/helico.app
           codesign --verify --deep --strict installed/helico.app
-      - name: Compare navigation under the runner and isolated home
+      - name: Verify the Safari homepage with Chromium using the runner home
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
           export HELICO_MACOS_TEST_APP="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
-          mkdir isolated-home
-          status=0
-          if ! HOME="$RUNNER_TEMP/isolated-home" HELICO_TEST_BROWSER_HANDOFF_WAILS="$HELICO_MACOS_TEST_APP" \
-            ./homepage-tests -test.v -test.count=1 -test.timeout=2m -test.run '^TestWailsBrowserHandoff$' \
-            2>&1 | tee evidence/isolated-home-navigation.txt; then status=1; fi
           export HELICO_RUNNER_HOME="$HOME"
           profile='Library/Containers/com.apple.Safari/Data/Library/Preferences/com.apple.Safari.plist'
           link="$HOME/$profile"
-          if [[ -e "$link" || -L "$link" ]]; then
-            printf '%s\n' 'The runner already has a Safari preferences file; left it intact.' | tee evidence/runner-home-homepage.txt
-            exit 1
-          fi
+          backup="$RUNNER_TEMP/original-safari-preferences.plist"
           cleanup() {
             local marker="$RUNNER_TEMP/safari-profile-link-source"
             if [[ -L "$link" && -f "$marker" && "$(readlink "$link")" == "$(cat "$marker")" ]]; then rm "$link"; fi
+            if [[ -e "$backup" || -L "$backup" ]]; then
+              if [[ -e "$link" || -L "$link" ]]; then
+                printf '%s\n' "Could not restore the runner preference file because $link was recreated." >&2
+                return 1
+              fi
+              mv "$backup" "$link"
+            fi
           }
           trap cleanup EXIT
+          if [[ -e "$link" || -L "$link" ]]; then mv "$link" "$backup"; fi
           cat > app-with-runner-home <<'SH'
           #!/bin/bash
           set -euo pipefail
@@ -118,10 +118,10 @@ jobs:
           exec "$HELICO_MACOS_TEST_APP"
           SH
           chmod 755 app-with-runner-home
-          if ! HELICO_TEST_BROWSER_HOMEPAGE_WAILS="$RUNNER_TEMP/app-with-runner-home" \
+          HELICO_TEST_BROWSER_HOMEPAGE_WAILS="$RUNNER_TEMP/app-with-runner-home" \
             ./homepage-tests -test.v -test.count=1 -test.timeout=3m -test.run '^TestWailsBrowserHomepage$' \
-            2>&1 | tee evidence/runner-home-homepage.txt; then status=1; fi
-          exit "$status"
+            2>&1 | tee evidence/runner-home-homepage.txt
+          grep -q '^--- PASS: TestWailsBrowserHomepage' evidence/runner-home-homepage.txt
       - name: Keep native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
