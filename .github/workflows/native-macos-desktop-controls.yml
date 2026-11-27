@@ -82,10 +82,10 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP"
           tests="helico-native-controls-r3-$ARCH.test"
-          source=helico-native-desktop-controls-r4.tar.gz
+          source=helico-native-desktop-controls-r5.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
-            -p "$source" -p helico-native-desktop-controls-r4-sha256.txt -p "$tests.gz" -p helico-native-controls-r3-sha256.txt
-          shasum -a 256 -c helico-native-desktop-controls-r4-sha256.txt
+            -p "$source" -p helico-native-desktop-controls-r5-sha256.txt -p "$tests.gz" -p helico-native-controls-r3-sha256.txt
+          shasum -a 256 -c helico-native-desktop-controls-r5-sha256.txt
           awk -v tests="$tests.gz" '$2 == tests' helico-native-controls-r3-sha256.txt | shasum -a 256 -c -
           mkdir controls-fixture
           tar -xzf "$source" -C controls-fixture
