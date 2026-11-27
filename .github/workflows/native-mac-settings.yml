@@ -194,9 +194,9 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          binary="helico-macos-settings-$ARCH.test"
-          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" -p "$binary.gz" -p helico-macos-settings-sha256.txt
-          awk -v name="$binary.gz" '$2 == name' helico-macos-settings-sha256.txt | shasum -a 256 -c - | tee native-settings.txt
+          binary="helico-macos-settings-retest-$ARCH.test"
+          gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" -p "$binary.gz" -p helico-macos-settings-retest-sha256.txt
+          awk -v name="$binary.gz" '$2 == name' helico-macos-settings-retest-sha256.txt | shasum -a 256 -c - | tee native-settings.txt
           gzip -dc "$binary.gz" > "$binary"
           chmod 755 "$binary"
           export HELICO_TEST_MAC_SETTINGS_WAILS="$RUNNER_TEMP/native-fixtures/helico.app/Contents/MacOS/helico"
