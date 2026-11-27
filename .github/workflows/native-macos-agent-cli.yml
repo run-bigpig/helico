@@ -143,6 +143,30 @@ jobs:
           programs/helico-core-tests -test.v -test.count=1 -test.timeout=6m \
             -test.run '^TestPiNative(Catalog|SessionResume|SessionImport|ConversationFork)$' 2>&1 | tee evidence/pi.txt
           test "$(grep -c '^--- PASS: TestPiNative' evidence/pi.txt)" -eq 4
+      - name: Exercise native CodeArts discovery, task recovery, fork and MCP
+        if: always() && steps.fixtures.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          if test "$ARCH" = amd64; then
+            platform_arch=x64-baseline
+            archive_hash=3d988778011358797531ff95e9d80dfb9ed93db6bb3f6c7c45f37dcdc7457784
+          else
+            platform_arch=arm64
+            archive_hash=936f776bac78baf0a551f300895f7905c4e11337e5bed2cb431037931e8c7966
+          fi
+          archive="codearts-install-26.11.11-darwin-$platform_arch.tar.gz"
+          curl --fail --show-error --silent --location --retry 3 --max-time 180 \
+            "https://codearts-agent-obs-cdn.huaweicloud.com/codearts/cli_tui/latest/$archive" -o "$archive"
+          printf '%s  %s\n' "$archive_hash" "$archive" | shasum -a 256 -c -
+          mkdir codearts
+          tar -xzf "$archive" -C codearts agentkernel
+          export HELICO_TEST_CODEARTS_BINARY="$RUNNER_TEMP/codearts/agentkernel"
+          export HELICO_TEST_CODEARTS_CATALOG_BINARY="$HELICO_TEST_CODEARTS_BINARY"
+          tests='Environment|Catalog|TaskRestarts|ConversationFork'
+          programs/helico-core-tests -test.v -test.count=1 -test.timeout=10m \
+            -test.run "^TestCodeArtsNative($tests)$" 2>&1 | tee evidence/codearts.txt
+          test "$(grep -c '^--- PASS: TestCodeArtsNative' evidence/codearts.txt)" -eq 4
       - name: Keep native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
