@@ -114,6 +114,8 @@ jobs:
           cd "$RUNNER_TEMP"
           app="$RUNNER_TEMP/installed/helico.app"
           /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
+          /usr/bin/open -g -b com.apple.notificationcenterui \
+            2>&1 | tee evidence/notification-agent.txt || true
           export HELICO_TEST_MAC_BRIDGE_WAILS="$app/Contents/MacOS/helico"
           export HELICO_TEST_MAC_KEYBOARD="$RUNNER_TEMP/native-input"
           if ! ./controls-tests -test.v -test.count=1 -test.timeout=90s \
@@ -182,6 +184,7 @@ jobs:
           path: |
             ${{ runner.temp }}/evidence/native-input-driver.txt
             ${{ runner.temp }}/evidence/notification.txt
+            ${{ runner.temp }}/evidence/notification-agent.txt
             ${{ runner.temp }}/evidence/notification-system.txt
             ${{ runner.temp }}/evidence/browser-shortcuts.txt
             ${{ runner.temp }}/evidence/composer-clipboard.txt
