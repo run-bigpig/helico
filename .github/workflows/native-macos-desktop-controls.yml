@@ -81,9 +81,9 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          tests="helico-macos-desktop-shortcuts-$ARCH.test"
-          tests_hashes=helico-macos-desktop-shortcuts-sha256.txt
-          native_input=helico-macos-native-input.swift
+          tests="helico-macos-native-input-r2-$ARCH.test"
+          tests_hashes=helico-macos-native-input-r2-sha256.txt
+          native_input=helico-macos-native-input-r2.swift
           source=helico-native-desktop-controls-r7.tar.gz
           gh release download ci-native-macos-check -R "$GITHUB_REPOSITORY" \
             -p "$source" -p helico-native-desktop-controls-r7-sha256.txt \
@@ -103,17 +103,30 @@ jobs:
           ./controls-tests -test.v -test.count=1 -test.timeout=3m \
             -test.run '^TestWailsBrowserHandoff$' 2>&1 | tee evidence/browser-presentation.txt
           grep -q '^--- PASS: TestWailsBrowserHandoff' evidence/browser-presentation.txt
-      - name: Verify native Chromium shortcuts and live rebinding
+      - name: Build the native keyboard and pasteboard driver
+        id: native-input
         if: always() && steps.fixture.outcome == 'success'
+        run: swiftc "$RUNNER_TEMP/helico-macos-native-input-r2.swift" -o "$RUNNER_TEMP/native-input"
+      - name: Verify native Chromium shortcuts and live rebinding
+        if: always() && steps.native-input.outcome == 'success'
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          swiftc helico-macos-native-input.swift -o native-input 2>&1 | tee evidence/native-input-build.txt
           export HELICO_TEST_BROWSER_HANDOFF_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
           export HELICO_TEST_MAC_KEYBOARD="$RUNNER_TEMP/native-input"
           ./controls-tests -test.v -test.count=1 -test.timeout=2m \
             -test.run '^TestWailsDarwinBrowserShortcuts$' 2>&1 | tee evidence/browser-shortcuts.txt
           grep -q '^--- PASS: TestWailsDarwinBrowserShortcuts' evidence/browser-shortcuts.txt
+      - name: Paste Unicode and PNG and read the copied PNG from NSPasteboard
+        if: always() && steps.native-input.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          export HELICO_TEST_MAC_BRIDGE_WAILS="$RUNNER_TEMP/installed/helico.app/Contents/MacOS/helico"
+          export HELICO_TEST_MAC_KEYBOARD="$RUNNER_TEMP/native-input"
+          ./controls-tests -test.v -test.count=1 -test.timeout=90s \
+            -test.run '^TestWailsDarwinComposerClipboard$' 2>&1 | tee evidence/composer-clipboard.txt
+          grep -q '^--- PASS: TestWailsDarwinComposerClipboard' evidence/composer-clipboard.txt
       - name: Restore, switch and dock the detached Git window
         if: always() && steps.fixture.outcome == 'success'
         run: |
